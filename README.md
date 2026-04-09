@@ -95,6 +95,9 @@ pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorc
 
 # Install remaining dependencies
 pip install -r requirements.txt
+
+# Install the project itself (editable mode — makes all modules importable)
+pip install -e .
 ```
 
 ### Verify Installation
