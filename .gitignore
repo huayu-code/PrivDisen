@@ -1,0 +1,45 @@
+# Results and checkpoints
+results/logs/*
+results/checkpoints/*
+results/figures/*
+!results/logs/.gitkeep
+!results/checkpoints/.gitkeep
+!results/figures/.gitkeep
+
+# Data
+data/raw/
+data/processed/
+*.csv
+*.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Misc
+*.log
+wandb/
