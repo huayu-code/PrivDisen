@@ -1,16 +1,30 @@
 """
 Dataset loaders for PrivDisen experiments.
 
-Supported: CIFAR-10, CIFAR-100, MNIST, Adult, Bank, Criteo (sampled).
+Supported: CIFAR-10, CIFAR-100, MNIST, Adult, Bank.
 All loaders return (X_train, y_train, X_test, y_test) as numpy arrays
 so that VFL partitioning can be applied uniformly.
 
-NOTE: Image dataset URLs are patched to use China-mainland mirrors by default.
-      Set environment variable PRIVDISEN_NO_MIRROR=1 to use original URLs.
+数据集下载策略：
+  1. 如果本地已有文件，直接加载（不重复下载）
+  2. 否则依次尝试多个镜像源下载
+  3. 如果全部失败，打印手动下载指引
+
+手动下载方式（任选其一）：
+  - 浏览器打开 https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz 下载
+  - 或从 ModelScope: https://www.modelscope.cn/datasets/cutedataset/cifar-10
+  - 或从 OpenDataLab: https://opendatalab.com/CIFAR-10
+  下载后将 cifar-10-python.tar.gz 放到 data/raw/ 目录下即可
 """
 
 import os
-from typing import Tuple
+import sys
+import ssl
+import tarfile
+import hashlib
+from typing import List, Optional, Tuple
+from urllib.request import urlretrieve, Request, urlopen
+from urllib.error import URLError, HTTPError
 
 import numpy as np
 import torch
@@ -18,65 +32,174 @@ from torchvision import datasets, transforms
 
 
 # ======================================================================
-# China-mainland mirror URLs for torchvision datasets
+# Download utilities with multi-mirror fallback
 # ======================================================================
-# torchvision 默认从多伦多大学/Yann LeCun 等国外服务器下载，国内很慢。
-# 这里 monkey-patch 各数据集类的 url / mirrors 属性，使用国内镜像。
 
-_USE_MIRROR = os.environ.get("PRIVDISEN_NO_MIRROR", "0") != "1"
+def _md5_check(filepath: str, expected_md5: Optional[str]) -> bool:
+    """Check MD5 of a file. Skip if expected_md5 is None."""
+    if expected_md5 is None:
+        return True
+    md5 = hashlib.md5()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            md5.update(chunk)
+    return md5.hexdigest() == expected_md5
 
-if _USE_MIRROR:
-    # --- CIFAR-10 / CIFAR-100 ---
-    # 官方源: https://www.cs.toronto.edu/~kriz/
-    # 替换为: 阿里云 / 清华等国内可达的地址
-    _CIFAR10_MIRROR = "https://pai-datasets.oss-cn-beijing.aliyuncs.com/cifar/"
-    _CIFAR100_MIRROR = "https://pai-datasets.oss-cn-beijing.aliyuncs.com/cifar/"
 
-    # Patch CIFAR-10
-    if hasattr(datasets.CIFAR10, "url"):
-        datasets.CIFAR10.url = _CIFAR10_MIRROR + "cifar-10-python.tar.gz"
-    if hasattr(datasets.CIFAR10, "mirrors"):
-        datasets.CIFAR10.mirrors = [_CIFAR10_MIRROR]
+def _download_with_progress(url: str, dest: str) -> None:
+    """Download a URL to dest with a simple progress indicator."""
+    print(f"  下载中: {url}")
+    print(f"  保存到: {dest}")
 
-    # Patch CIFAR-100
-    if hasattr(datasets.CIFAR100, "url"):
-        datasets.CIFAR100.url = _CIFAR100_MIRROR + "cifar-100-python.tar.gz"
-    if hasattr(datasets.CIFAR100, "mirrors"):
-        datasets.CIFAR100.mirrors = [_CIFAR100_MIRROR]
+    # 允许不安全的 SSL（部分国内镜像证书有问题）
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 
-    # --- MNIST ---
-    # 官方源: http://yann.lecun.com/exdb/mnist/ (已不可用)
-    # torchvision 现在默认走 GitHub release 或 AWS，国内也慢
-    # 替换为可用镜像
-    _MNIST_MIRRORS = [
-        "https://ossci-datasets.s3.amazonaws.com/mnist/",
-    ]
-    if hasattr(datasets.MNIST, "mirrors"):
-        datasets.MNIST.mirrors = _MNIST_MIRRORS
-    # 如果 torchvision 版本用 resources 列表（新版本）
-    if hasattr(datasets.MNIST, "resources"):
-        pass  # resources 包含 (filename, md5)，URL 由 mirrors 拼接，已通过上面修改
+    try:
+        req = Request(url, headers={"User-Agent": "PrivDisen/1.0"})
+        with urlopen(req, context=ctx, timeout=30) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            with open(dest, "wb") as f:
+                while True:
+                    chunk = resp.read(1024 * 256)  # 256KB chunks
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        pct = downloaded / total * 100
+                        bar_len = 40
+                        filled = int(bar_len * downloaded / total)
+                        bar = "=" * filled + "-" * (bar_len - filled)
+                        sys.stdout.write(
+                            f"\r  [{bar}] {pct:.1f}% ({downloaded/1024/1024:.1f}MB/{total/1024/1024:.1f}MB)"
+                        )
+                        sys.stdout.flush()
+            print()  # newline after progress bar
+    except (URLError, HTTPError, OSError) as e:
+        # Clean up partial file
+        if os.path.exists(dest):
+            os.remove(dest)
+        raise e
+
+
+def _download_from_mirrors(
+    mirrors: List[str],
+    dest: str,
+    md5: Optional[str] = None,
+) -> bool:
+    """
+    Try downloading from a list of mirror URLs.
+    Returns True on success, False if all mirrors fail.
+    """
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+    for i, url in enumerate(mirrors):
+        try:
+            print(f"[镜像 {i+1}/{len(mirrors)}] 尝试下载...")
+            _download_with_progress(url, dest)
+            if _md5_check(dest, md5):
+                print(f"  ✅ 下载成功，MD5 校验通过")
+                return True
+            else:
+                print(f"  ⚠️ MD5 校验失败，尝试下一个镜像...")
+                os.remove(dest)
+        except Exception as e:
+            print(f"  ❌ 下载失败: {e}")
+            continue
+
+    return False
+
+
+# ======================================================================
+# Mirror URLs for each dataset
+# ======================================================================
+
+CIFAR10_MIRRORS = [
+    # 官方源
+    "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz",
+]
+CIFAR10_MD5 = "c58f30108f718f92721af3b95e74349a"
+CIFAR10_FILENAME = "cifar-10-python.tar.gz"
+
+CIFAR100_MIRRORS = [
+    "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz",
+]
+CIFAR100_MD5 = "eb9058c3a382ffc7106e4002c42a8d85"
+CIFAR100_FILENAME = "cifar-100-python.tar.gz"
 
 
 # ======================================================================
 # Image datasets
 # ======================================================================
 
+def _ensure_cifar_downloaded(
+    data_dir: str,
+    filename: str,
+    extracted_dir: str,
+    mirrors: List[str],
+    md5: Optional[str],
+) -> None:
+    """Ensure CIFAR dataset is downloaded and extracted."""
+    extracted_path = os.path.join(data_dir, extracted_dir)
+    tar_path = os.path.join(data_dir, filename)
+
+    # Already extracted?
+    if os.path.isdir(extracted_path):
+        print(f"[数据集] 已存在: {extracted_path}")
+        return
+
+    # Tar file exists but not extracted?
+    if os.path.isfile(tar_path):
+        if _md5_check(tar_path, md5):
+            print(f"[数据集] 发现已下载的文件: {tar_path}，正在解压...")
+            with tarfile.open(tar_path, "r:gz") as tf:
+                tf.extractall(path=data_dir)
+            print(f"  ✅ 解压完成")
+            return
+        else:
+            print(f"[数据集] 文件 {tar_path} MD5 不匹配，重新下载...")
+            os.remove(tar_path)
+
+    # Need to download
+    os.makedirs(data_dir, exist_ok=True)
+    print(f"[数据集] 开始下载 {filename}...")
+    success = _download_from_mirrors(mirrors, tar_path, md5)
+
+    if success:
+        print(f"[数据集] 正在解压 {filename}...")
+        with tarfile.open(tar_path, "r:gz") as tf:
+            tf.extractall(path=data_dir)
+        print(f"  ✅ 解压完成: {extracted_path}")
+    else:
+        print(f"\n{'='*60}")
+        print(f"❌ 所有镜像均下载失败！请手动下载数据集：")
+        print(f"")
+        print(f"方法 1: 浏览器直接下载")
+        print(f"  https://www.cs.toronto.edu/~kriz/{filename}")
+        print(f"")
+        print(f"方法 2: 从 ModelScope 下载")
+        print(f"  https://www.modelscope.cn/datasets/cutedataset/cifar-10")
+        print(f"")
+        print(f"方法 3: 从 OpenDataLab 下载")
+        print(f"  https://opendatalab.com/CIFAR-10")
+        print(f"")
+        print(f"下载后将 {filename} 放到 {data_dir}/ 目录下，然后重新运行即可。")
+        print(f"{'='*60}")
+        raise RuntimeError(f"无法下载 {filename}，请参考上方提示手动下载。")
+
+
 def _load_image_dataset(cls, data_dir: str, flatten: bool = False):
-    """Generic loader for torchvision image datasets."""
+    """Generic loader for torchvision image datasets (download=False, assume already present)."""
     transform = transforms.ToTensor()
 
     print(f"[数据集] 正在加载 {cls.__name__}...")
-    if _USE_MIRROR:
-        mirror_url = getattr(cls, "url", None) or (
-            getattr(cls, "mirrors", [""])[0] if hasattr(cls, "mirrors") else ""
-        )
-        print(f"[数据集] 使用镜像源: {mirror_url[:60]}...")
-    else:
-        print(f"[数据集] 使用官方源（可设 PRIVDISEN_NO_MIRROR=0 切换镜像）")
 
-    train_ds = cls(root=data_dir, train=True, download=True, transform=transform)
-    test_ds = cls(root=data_dir, train=False, download=True, transform=transform)
+    # Load with download=False (we handle download ourselves)
+    train_ds = cls(root=data_dir, train=True, download=False, transform=transform)
+    test_ds = cls(root=data_dir, train=False, download=False, transform=transform)
 
     X_train = torch.stack([x for x, _ in train_ds]).numpy()
     y_train = np.array([y for _, y in train_ds])
@@ -93,15 +216,35 @@ def _load_image_dataset(cls, data_dir: str, flatten: bool = False):
 
 
 def load_cifar10(data_dir: str = "data/raw") -> Tuple[np.ndarray, ...]:
+    _ensure_cifar_downloaded(
+        data_dir, CIFAR10_FILENAME, "cifar-10-batches-py",
+        CIFAR10_MIRRORS, CIFAR10_MD5,
+    )
     return _load_image_dataset(datasets.CIFAR10, data_dir)
 
 
 def load_cifar100(data_dir: str = "data/raw") -> Tuple[np.ndarray, ...]:
+    _ensure_cifar_downloaded(
+        data_dir, CIFAR100_FILENAME, "cifar-100-python",
+        CIFAR100_MIRRORS, CIFAR100_MD5,
+    )
     return _load_image_dataset(datasets.CIFAR100, data_dir)
 
 
 def load_mnist(data_dir: str = "data/raw") -> Tuple[np.ndarray, ...]:
-    return _load_image_dataset(datasets.MNIST, data_dir)
+    """MNIST: let torchvision handle download (it uses working mirrors)."""
+    transform = transforms.ToTensor()
+    print(f"[数据集] 正在加载 MNIST...")
+    train_ds = datasets.MNIST(root=data_dir, train=True, download=True, transform=transform)
+    test_ds = datasets.MNIST(root=data_dir, train=False, download=True, transform=transform)
+
+    X_train = torch.stack([x for x, _ in train_ds]).numpy()
+    y_train = np.array([y for _, y in train_ds])
+    X_test = torch.stack([x for x, _ in test_ds]).numpy()
+    y_test = np.array([y for _, y in test_ds])
+
+    print(f"[数据集] MNIST 加载完成: train={X_train.shape}, test={X_test.shape}")
+    return X_train, y_train, X_test, y_test
 
 
 # ======================================================================
