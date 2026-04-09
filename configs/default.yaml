@@ -1,0 +1,38 @@
+# Default configuration for PrivDisen
+
+model:
+  input_dim: 784          # Flattened input dimension (e.g. 28x28 for MNIST)
+  hidden_dim: 256         # Hidden layer dimension for encoders / decoder
+  shared_dim: 64          # Shared (task-relevant) latent dimension
+  private_dim: 64         # Private (sensitive) latent dimension
+  num_classes: 10         # Number of downstream task classes
+  num_sensitive: 2        # Number of sensitive attribute classes (e.g. gender)
+
+training:
+  epochs: 100
+  batch_size: 64
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  seed: 42
+  device: "cpu"           # "cpu" or "cuda"
+
+  # Loss weights
+  alpha: 1.0              # Task (classification) loss weight
+  beta: 0.1               # KL divergence weight
+  gamma: 0.5              # Mutual information penalty weight
+  delta: 0.5              # Adversarial privacy loss weight
+  lambda_recon: 1.0       # Reconstruction loss weight
+
+data:
+  dataset: "mnist"        # Dataset to use
+  data_dir: "./data"
+  sensitive_attr: "label" # Which attribute to treat as sensitive (demo only)
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+logging:
+  log_dir: "./logs"
+  checkpoint_dir: "./checkpoints"
+  save_every: 10          # Save checkpoint every N epochs
+  eval_every: 5           # Run evaluation every N epochs
