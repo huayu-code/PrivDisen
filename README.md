@@ -1,192 +1,216 @@
-<<<<<<< HEAD
-# PrivDisen
-=======
 # PrivDisen
 
-**Privacy-Preserving Label Protection via Variational Disentangled Representation in Vertical Federated Learning**
+**基于变分解耦表征的纵向联邦学习标签隐私保护**
+
+*PrivDisen: Privacy-Preserving Label Protection via Variational Disentangled Representation in Vertical Federated Learning*
 
 <p align="center">
-  <img src="assets/architecture.png" width="700" alt="PrivDisen Architecture">
+  <img src="assets/architecture.png" width="700" alt="PrivDisen 系统架构">
 </p>
 
-> PrivDisen decomposes intermediate embeddings in Vertical Federated Learning (VFL) into a **task-relevant** subspace and a **label-sensitive** subspace via variational inference, transmitting only the former to the active party while provably bounding label leakage through mutual-information constraints.
+> PrivDisen 通过变分推断将纵向联邦学习（VFL）中的中间嵌入分解为**任务相关子空间**和**标签敏感子空间**，仅传输前者给主动方，并通过互信息约束提供可证明的隐私保证。
 
 ---
 
-## Highlights
+## 核心亮点
 
-- **Variational Disentanglement Module (VDM):** Replaces the coarse two-classifier split of prior work (SVFL) with a probabilistic, continuously controllable separation.
-- **Provable Privacy Guarantee:** An explicit mutual-information bound, derived from the Variational Information Bottleneck (VIB) and Fano's inequality, upper-bounds any attacker's label inference accuracy.
-- **Tunable Privacy–Utility Trade-off:** A single scalar $\beta$ traces the full Pareto frontier between model accuracy and attack success rate.
-- **Comprehensive Evaluation:** Tested against four families of label-inference attacks across six datasets and up to five participating parties.
-
----
-
-## Table of Contents
-
-- [Architecture Overview](#architecture-overview)
-- [Installation](#installation)
-- [Project Structure](#project-structure)
-- [Quick Start](#quick-start)
-- [Datasets](#datasets)
-- [Experiments](#experiments)
-- [Configuration](#configuration)
-- [Results](#results)
-- [Citation](#citation)
-- [License](#license)
+- **变分解耦模块 (VDM)**：用参数化概率分布实现软分离，替代 SVFL 的两分类器硬分割
+- **可证明隐私保证**：基于变分信息瓶颈（VIB）和 Fano 不等式，给出攻击者标签推断准确率的显式上界
+- **可调隐私-效用权衡**：单一参数 $\beta$ 即可在隐私保护和模型精度之间灵活调节
+- **全面评估**：4 类标签推断攻击 × 6 个数据集 × 最多 5 个参与方
 
 ---
 
-## Architecture Overview
+## 目录
+
+- [系统架构](#系统架构)
+- [环境安装](#环境安装)
+- [项目结构](#项目结构)
+- [快速开始](#快速开始)
+- [数据集](#数据集)
+- [实验](#实验)
+- [配置说明](#配置说明)
+- [实验结果](#实验结果)
+- [引用](#引用)
+- [相关工作](#相关工作)
+- [许可证](#许可证)
+
+---
+
+## 系统架构
 
 ```
-Passive Party                        Active Party
+被动方 (Passive Party)                 主动方 (Active Party)
 ┌──────────────────────┐             ┌──────────────────┐
 │  X ──► Bottom Model  │             │   Top Model      │
 │         │             │             │      │           │
 │    ┌────▼────┐        │   Z_task   │   ┌──▼──┐       │
-│    │   VDM   │────────│──────────►─│───│Fuse │──► ŷ  │
+│    │   VDM   │────────│──────────►─│───│融合层│──► ŷ  │
 │    │ ┌─────┐ │        │            │   └─────┘       │
 │    │ │Z_priv│ │        │            │      │           │
 │    │ └──┬──┘ │        │    ∇'      │   L_task(ŷ, y)  │
-│    └────┘    │        │◄───────────│   Grad Purif.   │
-│  (kept local)│        │            └──────────────────┘
+│    └────┘    │        │◄───────────│   梯度净化       │
+│  (保留在本地) │        │            └──────────────────┘
 └──────────────────────┘
 
-Adversarial Label Classifier (ALC)
-   ← Gradient Reversal Layer ←── Z_task
+对抗标签分类器 (ALC)
+   ← 梯度反转层 (GRL) ←── Z_task
 ```
 
-**Core Modules:**
+**核心模块：**
 
-| Module | Purpose |
-|--------|---------|
-| **VDM** (Variational Disentanglement Module) | Splits embeddings into Z_task and Z_private via reparameterized Gaussian |
-| **ALC** (Adversarial Label Classifier) | Gradient-reversal–based adversary ensuring Z_task carries no label signal |
-| **MI Loss** | KL divergence term upper-bounding $I(Z_{\text{task}}; Y)$ |
-| **HSIC Loss** | Independence constraint between Z_task and Z_private |
-| **Recon Loss** | Ensures lossless information decomposition |
-| **Gradient Purifier** *(optional)* | Projects back-propagated gradients to remove label-correlated components |
+| 模块 | 作用 |
+|------|------|
+| **VDM** (变分解耦模块) | 将嵌入分解为 Z_task 和 Z_private，基于重参数化高斯分布 |
+| **ALC** (对抗标签分类器) | 通过梯度反转确保 Z_task 不携带标签信号 |
+| **MI Loss** | KL 散度项，约束 $I(Z_{\text{task}}; Y)$ 的上界 |
+| **HSIC Loss** | Z_task 与 Z_private 之间的独立性约束 |
+| **Recon Loss** | 确保信息无损分解（重构原始嵌入） |
+| **梯度净化** *(可选)* | 投影去除反向传播梯度中的标签相关分量 |
 
 ---
 
-## Installation
+## 环境安装
 
-### Prerequisites
+### 前置要求
 
 - Python 3.9
-- CUDA 11.x+ (GPU required)
+- CUDA 11.x+（需要 GPU）
 - Git
 
-### Setup
+### 安装步骤
 
 ```bash
-# Clone the repository
-git clone https://github.com/<your-username>/PrivDisen.git
+# 克隆仓库
+git clone https://github.com/<你的用户名>/PrivDisen.git
 cd PrivDisen
 
-# Create a virtual environment
+# 创建虚拟环境
 python3.9 -m venv venv
 source venv/bin/activate
 
-# Install PyTorch (adjust CUDA version as needed)
-# See https://pytorch.org/get-started/locally/ for your specific CUDA version
+# 安装 PyTorch（根据你的 CUDA 版本调整）
+# 详见 https://pytorch.org/get-started/locally/
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 
-# Install remaining dependencies
+# 安装其他依赖
 pip install -r requirements.txt
 
-# Install the project itself (editable mode — makes all modules importable)
+# 安装项目本身（开发模式，使所有模块可导入）
 pip install -e .
 ```
 
-### Verify Installation
+### 🇨🇳 国内用户加速
+
+如果 pip 下载速度慢，使用国内镜像源：
 
 ```bash
-python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA available: {torch.cuda.is_available()}')"
+# 方式一：临时使用清华镜像
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 方式二：永久设置（推荐，设置一次后续所有 pip install 自动走镜像）
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt
+pip install -e .
+```
+
+其他可选镜像：
+
+| 镜像源 | 地址 |
+|--------|------|
+| 清华 | `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| 阿里云 | `https://mirrors.aliyun.com/pypi/simple` |
+| 中科大 | `https://pypi.mirrors.ustc.edu.cn/simple` |
+
+### 验证安装
+
+```bash
+python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
+```
+
+### ⚠️ 常见问题
+
+**Q: 运行时报错 `No module named 'data'` 或 `No module named 'models'`**
+
+A: 这是因为没有执行 `pip install -e .`。这一步将项目注册为可编辑 Python 包，使得 `data`、`models`、`losses` 等内部模块可以在任意位置正确导入。
+
+```bash
+cd ~/paper/PrivDisen
+pip install -e .
+```
+
+如果不想安装，也可以在运行时指定 `PYTHONPATH`：
+```bash
+PYTHONPATH=. python experiments/run_main.py --method privdisen
 ```
 
 ---
 
-## Project Structure
+## 项目结构
 
 ```
 PrivDisen/
-├── configs/                     # YAML configuration files
-│   ├── default.yaml             # Default hyperparameters
-│   ├── cifar10.yaml
-│   ├── cifar100.yaml
-│   ├── adult.yaml
-│   └── bank.yaml
+├── configs/                     # YAML 配置文件
+│   └── default.yaml             # 默认超参数
 │
-├── data/                        # Data loading & VFL partitioning
-│   ├── datasets.py              # Dataset loaders
-│   ├── vfl_partition.py         # N-party feature partitioning
-│   └── download.py              # Auto-download script
+├── data/                        # 数据加载与 VFL 划分
+│   ├── datasets.py              # 数据集加载器（CIFAR-10/100, MNIST, Adult, Bank）
+│   ├── vfl_partition.py         # N 方特征划分（支持图像和表格）
+│   └── download.py              # 数据自动下载脚本
 │
-├── models/                      # Model definitions
-│   ├── bottom_model.py          # Passive-party encoder (CNN / MLP)
-│   ├── top_model.py             # Active-party classifier
-│   ├── vdm.py                   # ★ Variational Disentanglement Module
-│   ├── adversarial.py           # ★ ALC + Gradient Reversal Layer
-│   ├── gradient_purifier.py     # Gradient purification (optional)
-│   └── reconstruction.py        # Reconstruction decoder
+├── models/                      # 模型定义
+│   ├── bottom_model.py          # 被动方底层模型（CNN / MLP）
+│   ├── top_model.py             # 主动方顶层分类器
+│   ├── vdm.py                   # ★ 变分解耦模块 (VDM)
+│   ├── adversarial.py           # ★ 对抗标签分类器 (ALC) + 梯度反转层 (GRL)
+│   ├── gradient_purifier.py     # 梯度净化模块（可选）
+│   └── reconstruction.py        # 重构解码器
 │
-├── losses/                      # Loss functions
-│   ├── task_loss.py             # Cross-entropy
-│   ├── mi_loss.py               # KL-based MI upper bound
-│   ├── hsic_loss.py             # HSIC independence criterion
-│   └── reconstruction_loss.py   # MSE reconstruction
+├── losses/                      # 损失函数
+│   ├── task_loss.py             # 交叉熵（主任务）
+│   ├── mi_loss.py               # KL 散度（互信息上界）
+│   ├── hsic_loss.py             # HSIC 独立性约束
+│   └── reconstruction_loss.py   # MSE 重构损失
 │
-├── attacks/                     # Label inference attacks
-│   ├── norm_attack.py           # Norm-based passive attack
-│   ├── direction_attack.py      # Direction-based passive attack
-│   ├── model_completion.py      # Model completion attack
-│   └── embedding_extension.py   # Embedding extension attack
+├── attacks/                     # 标签推断攻击
+│   ├── norm_attack.py           # 基于梯度范数的被动攻击
+│   ├── direction_attack.py      # 基于梯度方向的被动攻击
+│   ├── model_completion.py      # 模型完成攻击
+│   └── embedding_extension.py   # 嵌入扩展攻击
 │
-├── trainers/                    # Training orchestration
-│   ├── vfl_trainer.py           # Base VFL trainer
-│   ├── privdisen_trainer.py     # ★ PrivDisen trainer
-│   └── baseline_trainers.py     # Baseline method trainers
+├── trainers/                    # 训练器
+│   ├── vfl_trainer.py           # Vanilla VFL 训练器（基线）
+│   └── privdisen_trainer.py     # ★ PrivDisen 训练器（完整流程）
 │
-├── baselines/                   # Baseline implementations
-│   ├── vanilla_vfl.py
-│   ├── dp_vfl.py
-│   ├── svfl.py
-│   ├── labobf.py
-│   ├── kdk.py
-│   ├── ladsg.py
-│   └── mid.py
+├── baselines/                   # 基线方法实现
 │
-├── evaluation/                  # Evaluation & visualization
-│   ├── metrics.py               # MTA, ASR, Privacy-Utility Trade-off
-│   ├── attack_eval.py           # Attack evaluation pipeline
-│   └── visualization.py         # t-SNE, Pareto curves, loss plots
+├── evaluation/                  # 评估与可视化
+│   ├── metrics.py               # MTA, ASR, PUT 等指标
+│   ├── attack_eval.py           # 攻击评估流水线
+│   └── visualization.py         # t-SNE、Pareto 曲线、训练曲线
 │
-├── experiments/                 # Experiment entry points
-│   ├── run_main.py              # Main comparison (Table 1)
-│   ├── run_multi_party.py       # Multi-party scaling (Table 2)
-│   ├── run_ablation.py          # Ablation study (Table 3)
-│   ├── run_pareto.py            # Pareto frontier (Figure 1)
-│   ├── run_sensitivity.py       # Hyperparameter sensitivity (Figure 2)
-│   └── run_visualization.py     # t-SNE visualization (Figure 4)
+├── experiments/                 # 实验入口
+│   ├── run_main.py              # 主对比实验（表1）
+│   ├── run_multi_party.py       # 多方扩展实验（表2）
+│   └── run_ablation.py          # 消融实验（表3）
 │
-├── utils/                       # Utilities
-│   ├── logger.py
-│   ├── seed.py
-│   └── config.py
+├── utils/                       # 工具函数
+│   ├── logger.py                # 日志
+│   ├── seed.py                  # 随机种子
+│   └── config.py                # 配置管理（YAML + CLI）
 │
-├── scripts/                     # Shell scripts
-│   ├── train.sh
-│   └── eval.sh
+├── scripts/                     # 运行脚本
+│   ├── train.sh                 # 一键训练
+│   └── eval.sh                  # 一键评估
 │
-├── results/                     # Output (git-ignored except .gitkeep)
+├── results/                     # 输出目录（已 gitignore）
 │   ├── logs/
 │   ├── checkpoints/
 │   └── figures/
 │
-├── assets/                      # Images for README
-├── requirements.txt
+├── setup.py                     # 项目安装配置
+├── requirements.txt             # 依赖清单
 ├── .gitignore
 ├── LICENSE
 └── README.md
@@ -194,19 +218,19 @@ PrivDisen/
 
 ---
 
-## Quick Start
+## 快速开始
 
-### 1. Download Data
+### 1. 下载数据
 
 ```bash
 python data/download.py --dataset cifar10
 ```
 
-### 2. Train PrivDisen (2-party, CIFAR-10)
+### 2. 训练 PrivDisen（2 方，CIFAR-10）
 
 ```bash
 python experiments/run_main.py \
-    --config configs/cifar10.yaml \
+    --config configs/default.yaml \
     --method privdisen \
     --num_parties 2 \
     --beta 0.01 \
@@ -214,123 +238,121 @@ python experiments/run_main.py \
     --seed 42
 ```
 
-### 3. Evaluate Under Attacks
+### 3. 评估攻击效果
 
 ```bash
 python experiments/run_main.py \
-    --config configs/cifar10.yaml \
+    --config configs/default.yaml \
     --method privdisen \
     --eval_only \
-    --checkpoint results/checkpoints/privdisen_cifar10_best.pt \
+    --checkpoint results/checkpoints/privdisen_best.pt \
     --attacks norm direction model_completion \
     --device cuda:0
 ```
 
-### 4. Run All Experiments
+### 4. 运行全部实验
 
 ```bash
-# Main comparison across all datasets and methods
+# 主对比实验
 bash scripts/train.sh
 
-# Evaluate all
+# 多方实验 + 消融实验
 bash scripts/eval.sh
 ```
 
 ---
 
-## Datasets
+## 数据集
 
-| Dataset | Type | Samples | Features | Classes | VFL Partition |
-|---------|------|---------|----------|---------|---------------|
-| CIFAR-10 | Image | 60K | 3×32×32 | 10 | Channel / spatial split |
-| CIFAR-100 | Image | 60K | 3×32×32 | 100 | Channel / spatial split |
-| MNIST | Image | 70K | 1×28×28 | 10 | Left-half / right-half |
-| Adult | Tabular | 48K | 14 | 2 | Column-wise split |
-| Bank | Tabular | 45K | 16 | 2 | Column-wise split |
-| Criteo | Tabular | 100K | 39 | 2 | Column-wise split |
+| 数据集 | 类型 | 样本量 | 特征维度 | 类别数 | VFL 划分方式 |
+|--------|------|--------|---------|--------|-------------|
+| CIFAR-10 | 图像 | 60K | 3×32×32 | 10 | 按通道 / 按空间区域 |
+| CIFAR-100 | 图像 | 60K | 3×32×32 | 100 | 按通道 / 按空间区域 |
+| MNIST | 图像 | 70K | 1×28×28 | 10 | 左半 / 右半 |
+| Adult | 表格 | 48K | 14 | 2 | 按特征列 |
+| Bank | 表格 | 45K | 16 | 2 | 按特征列 |
+| Criteo | 表格 | 100K | 39 | 2 | 按特征列 |
 
-Datasets are auto-downloaded on first use. Tabular datasets are sourced from the UCI Machine Learning Repository.
-
----
-
-## Experiments
-
-### Experiment Overview
-
-| Experiment | Script | Description |
-|-----------|--------|-------------|
-| **Main Comparison** | `run_main.py` | PrivDisen vs. 7 baselines across 6 datasets × 4 attacks |
-| **Multi-Party** | `run_multi_party.py` | Scaling to 2, 3, 4, 5 passive parties |
-| **Ablation** | `run_ablation.py` | Impact of each loss component |
-| **Pareto Frontier** | `run_pareto.py` | Privacy–utility trade-off curves |
-| **Sensitivity** | `run_sensitivity.py` | Hyperparameter β analysis |
-| **Visualization** | `run_visualization.py` | t-SNE of Z_task vs Z_private |
-
-### Key Metrics
-
-| Metric | Symbol | Direction | Meaning |
-|--------|--------|-----------|---------|
-| Main Task Accuracy | MTA | ↑ | Model performance on the primary task |
-| Attack Success Rate | ASR | ↓ | Attacker's label inference accuracy |
-| Privacy-Utility Trade-off | PUT | ↑ | MTA / ASR ratio |
+数据集在首次使用时自动下载。表格数据集来源于 UCI 机器学习仓库。
 
 ---
 
-## Configuration
+## 实验
 
-All hyperparameters are managed via YAML files in `configs/`. Key parameters:
+### 实验总览
+
+| 实验 | 脚本 | 说明 |
+|------|------|------|
+| **主对比实验** | `run_main.py` | PrivDisen vs. 7 个基线 × 6 数据集 × 4 种攻击 |
+| **多方实验** | `run_multi_party.py` | 2/3/4/5 个被动方的扩展性实验 |
+| **消融实验** | `run_ablation.py` | 各损失分量的贡献分析 |
+
+### 核心指标
+
+| 指标 | 符号 | 方向 | 含义 |
+|------|------|------|------|
+| 主任务准确率 | MTA | ↑ | 模型在主任务上的精度 |
+| 攻击成功率 | ASR | ↓ | 攻击者推断标签的准确率 |
+| 隐私-效用权衡 | PUT | ↑ | MTA / ASR 比值 |
+
+---
+
+## 配置说明
+
+所有超参数通过 `configs/` 目录下的 YAML 文件管理。关键参数：
 
 ```yaml
-# Training
+# 训练
 epochs: 100
 batch_size: 256
 lr: 0.001
 optimizer: adam
 
-# VFL
-num_parties: 2           # Number of passive parties
-task_dim: 128             # Dimension of Z_task
-private_dim: 64           # Dimension of Z_private
+# VFL 设置
+num_parties: 2           # 被动方数量
+task_dim: 128             # Z_task 维度
+private_dim: 64           # Z_private 维度
 
-# PrivDisen Loss Weights
-alpha_schedule: "dann"    # Adversarial strength: gradual increase
-beta: 0.01                # MI constraint strength (privacy knob)
-gamma: 1.0                # Reconstruction weight
-delta: 0.1                # HSIC independence weight
+# PrivDisen 损失权重
+alpha_schedule: "dann"    # 对抗强度：渐进增大
+beta: 0.01                # MI 约束强度（隐私旋钮）
+gamma: 1.0                # 重构损失权重
+delta: 0.1                # HSIC 独立性权重
 
-# Device
+# 设备
 device: "cuda:0"
 seed: 42
 ```
 
-Override any parameter from command line:
+命令行覆盖任意参数：
 
 ```bash
-python experiments/run_main.py --config configs/cifar10.yaml --beta 0.1 --num_parties 3
+python experiments/run_main.py --config configs/default.yaml --beta 0.1 --num_parties 3
 ```
 
 ---
 
-## Results
+## 实验结果
 
-> Results will be populated after running experiments.
+> 运行实验后自动填充。
 
-### Expected Outcomes
+### 预期效果
 
-- **MTA**: Within 1–3% of vanilla VFL (no protection baseline)
-- **ASR**: Reduced to near random-guess level (1/K for K classes)
-- **Multi-party**: Consistent protection as the number of parties increases from 2 to 5
-- **Pareto**: PrivDisen dominates existing methods (higher MTA at equivalent ASR)
+- **MTA**：与无保护的 Vanilla VFL 相比，精度损失控制在 1-3% 以内
+- **ASR**：降低至接近随机猜测水平（K 分类时为 1/K）
+- **多方场景**：2-5 方场景下保护效果一致
+- **Pareto 曲线**：PrivDisen 在相同 ASR 下取得更高 MTA，优于已有方法
 
 ---
 
-## Citation
+## 引用
 
-If you find this work useful, please cite:
+如果本工作对你有帮助，请引用：
 
 ```bibtex
 @article{privdisen2026,
-  title     = {PrivDisen: Privacy-Preserving Label Protection via Variational Disentangled Representation in Vertical Federated Learning},
+  title     = {PrivDisen: Privacy-Preserving Label Protection via Variational
+               Disentangled Representation in Vertical Federated Learning},
   author    = {Tan, Yang},
   year      = {2026},
   note      = {Preprint}
@@ -339,24 +361,23 @@ If you find this work useful, please cite:
 
 ---
 
-## Related Work
+## 相关工作
 
-- **SVFL** – Zhang et al., *Signal Processing* 2023 — Feature disentanglement via two classifiers
-- **LabObf** – He et al., 2024 — Label obfuscation through random soft-label mapping
-- **KDk** – Arazzi et al., *Neurocomputing* 2025 — Knowledge distillation + k-anonymity
-- **LADSG** – Yan et al., 2025 — Label-anonymized distillation + gradient substitution
-- **VMask** – Tan et al., *FCS* 2025 — Layer masking via secret sharing
-- **MID** – Zou et al., 2023 — Mutual information regularization defense
-
----
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+- **SVFL** – Zhang et al., *Signal Processing* 2023 — 基于两分类器的特征解纠缠
+- **LabObf** – He et al., 2024 — 随机软标签映射的标签混淆
+- **KDk** – Arazzi et al., *Neurocomputing* 2025 — 知识蒸馏 + k-匿名
+- **LADSG** – Yan et al., 2025 — 标签匿名化蒸馏 + 梯度替代
+- **VMask** – Tan et al., *FCS* 2025 — 基于秘密共享的层掩码
+- **MID** – Zou et al., 2023 — 互信息正则化防御
 
 ---
 
-## Acknowledgments
+## 许可证
 
-This work builds upon the [VFLAIR](https://github.com/FLAIR-THU/VFLAIR) benchmark for VFL attack and defense evaluation.
->>>>>>> c92b093 (init: project scaffold)
+本项目基于 MIT 许可证开源，详见 [LICENSE](LICENSE)。
+
+---
+
+## 致谢
+
+本工作参考了 [VFLAIR](https://github.com/FLAIR-THU/VFLAIR) 纵向联邦学习攻防评估基准。
