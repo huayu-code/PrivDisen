@@ -118,13 +118,19 @@ def _download_from_mirrors(
 # ======================================================================
 
 CIFAR10_MIRRORS = [
-    # 官方源
+    # ① HuggingFace 国内镜像（hf-mirror.com，国内速度最快）
+    "https://hf-mirror.com/datasets/uoft-cs/cifar10/resolve/main/cifar-10-python.tar.gz",
+    # ② HuggingFace 官方（部分地区可能需要代理）
+    "https://huggingface.co/datasets/uoft-cs/cifar10/resolve/main/cifar-10-python.tar.gz",
+    # ③ 官方源（多伦多大学，国内最慢）
     "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz",
 ]
 CIFAR10_MD5 = "c58f30108f718f92721af3b95e74349a"
 CIFAR10_FILENAME = "cifar-10-python.tar.gz"
 
 CIFAR100_MIRRORS = [
+    "https://hf-mirror.com/datasets/uoft-cs/cifar100/resolve/main/cifar-100-python.tar.gz",
+    "https://huggingface.co/datasets/uoft-cs/cifar100/resolve/main/cifar-100-python.tar.gz",
     "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz",
 ]
 CIFAR100_MD5 = "eb9058c3a382ffc7106e4002c42a8d85"
