@@ -24,9 +24,8 @@
 ## 目录
 
 - [系统架构](#系统架构)
-- [环境安装](#环境安装)
+- [环境安装与快速开始](#环境安装与快速开始)
 - [项目结构](#项目结构)
-- [快速开始](#快速开始)
 - [数据集](#数据集)
 - [实验](#实验)
 - [配置说明](#配置说明)
@@ -70,7 +69,7 @@
 
 ---
 
-## 环境安装
+## 环境安装与快速开始
 
 ### 前置要求
 
@@ -78,55 +77,126 @@
 - CUDA 11.x+（需要 GPU）
 - Git
 
-### 安装步骤
+### 完整流程（从零到跑通实验）
+
+#### Step 1：克隆仓库
 
 ```bash
-# 克隆仓库
 git clone https://github.com/<你的用户名>/PrivDisen.git
 cd PrivDisen
+```
 
-# 创建虚拟环境
+#### Step 2：创建虚拟环境
+
+```bash
+# Linux / macOS
 python3.9 -m venv venv
 source venv/bin/activate
 
-# 安装 PyTorch（根据你的 CUDA 版本调整）
-# 详见 https://pytorch.org/get-started/locally/
-pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
-
-# 安装其他依赖
-pip install -r requirements.txt
-
-# 安装项目本身（开发模式，使所有模块可导入）
-pip install -e .
+# Windows
+python -m venv venv
+venv\Scripts\activate
 ```
 
-### 🇨🇳 国内用户加速
+#### Step 3：安装 PyTorch
 
-如果 pip 下载速度慢，使用国内镜像源：
+根据你的 CUDA 版本选择（详见 [PyTorch 官网](https://pytorch.org/get-started/locally/)）：
 
 ```bash
-# 方式一：临时使用清华镜像
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+# CUDA 11.8
+pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 
-# 方式二：永久设置（推荐，设置一次后续所有 pip install 自动走镜像）
-pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
-pip install -r requirements.txt
-pip install -e .
+# CUDA 12.1
+pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
 ```
 
-其他可选镜像：
+#### Step 4：安装项目依赖
 
-| 镜像源 | 地址 |
-|--------|------|
-| 清华 | `https://pypi.tuna.tsinghua.edu.cn/simple` |
-| 阿里云 | `https://mirrors.aliyun.com/pypi/simple` |
-| 中科大 | `https://pypi.mirrors.ustc.edu.cn/simple` |
+```bash
+# 国内用户推荐使用清华镜像（快很多）
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-### 验证安装
+# 安装项目本身（必须执行，否则会报 No module named 'data' 错误）
+pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+> **💡 可选：永久设置清华镜像**（设一次以后不用每次加 `-i`）
+> ```bash
+> pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+> ```
+
+#### Step 5：下载数据集
+
+数据集通过 HuggingFace 国内镜像 (hf-mirror.com) 下载，支持**断点续传**：
+
+```bash
+# 下载 CIFAR-10
+python data/download.py --dataset cifar10
+
+# 下载 CIFAR-100
+python data/download.py --dataset cifar100
+
+# 一键下载全部数据集
+python data/download.py --dataset all
+```
+
+> **⚠️ 如果下载仍然很慢**，可以手动在浏览器打开以下链接下载，然后放到 `data/raw/` 目录下：
+>
+> | 数据集 | 浏览器下载链接 | 放到 |
+> |--------|--------------|------|
+> | CIFAR-10 | [点击下载](https://hf-mirror.com/datasets/uoft-cs/cifar10/resolve/main/cifar-10-python.tar.gz) | `data/raw/cifar-10-python.tar.gz` |
+> | CIFAR-100 | [点击下载](https://hf-mirror.com/datasets/uoft-cs/cifar100/resolve/main/cifar-100-python.tar.gz) | `data/raw/cifar-100-python.tar.gz` |
+> | MNIST | 自动下载，无需手动 | — |
+> | Adult / Bank | 自动下载，文件很小 | — |
+>
+> 放好后重新运行 `python data/download.py --dataset cifar10`，会自动检测到文件并解压。
+
+#### Step 6：验证安装
 
 ```bash
 python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
+```
+
+#### Step 7：开始训练
+
+```bash
+# 训练 PrivDisen（2 方，CIFAR-10）
+python experiments/run_main.py \
+    --config configs/default.yaml \
+    --method privdisen \
+    --num_parties 2 \
+    --beta 0.01 \
+    --device cuda:0 \
+    --seed 42
+
+# 训练 Vanilla VFL（无保护基线，用于对比）
+python experiments/run_main.py \
+    --config configs/default.yaml \
+    --method vanilla \
+    --dataset cifar10 \
+    --device cuda:0
+```
+
+#### Step 8：评估攻击效果
+
+```bash
+python experiments/run_main.py \
+    --config configs/default.yaml \
+    --method privdisen \
+    --eval_only \
+    --checkpoint results/checkpoints/privdisen_best.pt \
+    --attacks norm direction model_completion \
+    --device cuda:0
+```
+
+#### Step 9：运行全部实验
+
+```bash
+# 主对比实验
+bash scripts/train.sh
+
+# 多方实验 + 消融实验
+bash scripts/eval.sh
 ```
 
 ### ⚠️ 常见问题
@@ -136,14 +206,30 @@ python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.
 A: 这是因为没有执行 `pip install -e .`。这一步将项目注册为可编辑 Python 包，使得 `data`、`models`、`losses` 等内部模块可以在任意位置正确导入。
 
 ```bash
-cd ~/paper/PrivDisen
 pip install -e .
 ```
 
 如果不想安装，也可以在运行时指定 `PYTHONPATH`：
+
 ```bash
+# Linux / macOS
 PYTHONPATH=. python experiments/run_main.py --method privdisen
+
+# Windows PowerShell
+$env:PYTHONPATH="."; python experiments/run_main.py --method privdisen
 ```
+
+**Q: 数据集下载很慢怎么办？**
+
+A: 参考 Step 5 中的手动下载方式，浏览器打开链接下载后放到 `data/raw/` 目录即可。
+
+**Q: 可用的 pip 镜像源有哪些？**
+
+| 镜像源 | 地址 |
+|--------|------|
+| 清华 | `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| 阿里云 | `https://mirrors.aliyun.com/pypi/simple` |
+| 中科大 | `https://pypi.mirrors.ustc.edu.cn/simple` |
 
 ---
 
