@@ -1,449 +1,419 @@
 # PrivDisen
 
+**Privacy-Preserving Label Protection via Variational Disentangled Representation in Vertical Federated Learning**
+
 **基于变分解耦表征的纵向联邦学习标签隐私保护**
 
-*PrivDisen: Privacy-Preserving Label Protection via Variational Disentangled Representation in Vertical Federated Learning*
-
 <p align="center">
-  <img src="assets/architecture.png" width="700" alt="PrivDisen 系统架构">
+  <img src="assets/architecture.png" width="700" alt="PrivDisen Architecture">
 </p>
 
-> PrivDisen 通过变分推断将纵向联邦学习（VFL）中的中间嵌入分解为**任务相关子空间**和**标签敏感子空间**，仅传输前者给主动方，并通过互信息约束提供可证明的隐私保证。
-
 ---
 
-## 核心亮点
+## 1. Introduction
 
-- **变分解耦模块 (VDM)**：用参数化概率分布实现软分离，替代 SVFL 的两分类器硬分割
-- **可证明隐私保证**：基于变分信息瓶颈（VIB）和 Fano 不等式，给出攻击者标签推断准确率的显式上界
-- **可调隐私-效用权衡**：单一参数 $\beta$ 即可在隐私保护和模型精度之间灵活调节
-- **全面评估**：4 类标签推断攻击 × 6 个数据集 × 最多 5 个参与方
+### 1.1 Background: Vertical Federated Learning
 
----
+**纵向联邦学习（Vertical Federated Learning, VFL）** 是一种多方协同机器学习范式。在 VFL 中，多个参与方持有**相同样本集的不同特征**（例如银行持有交易数据，电商持有购物数据，两者共享相同用户 ID），通过协同训练获得比任何单方数据更好的模型。
 
-## 目录
-
-- [系统架构](#系统架构)
-- [环境安装与快速开始](#环境安装与快速开始)
-- [项目结构](#项目结构)
-- [数据集](#数据集)
-- [实验](#实验)
-- [配置说明](#配置说明)
-- [实验结果](#实验结果)
-- [引用](#引用)
-- [相关工作](#相关工作)
-- [许可证](#许可证)
-
----
-
-## 系统架构
+VFL 的典型架构为 **Split Learning**：
+- **被动方（Passive Party）**：持有特征 X，训练底层模型（Bottom Model），输出中间嵌入（embedding）发送给主动方
+- **主动方（Active Party）**：持有标签 Y，训练顶层模型（Top Model），计算损失并将梯度回传给被动方
 
 ```
-被动方 (Passive Party)                 主动方 (Active Party)
-┌──────────────────────┐             ┌──────────────────┐
-│  X ──► Bottom Model  │             │   Top Model      │
-│         │             │             │      │           │
-│    ┌────▼────┐        │   Z_task   │   ┌──▼──┐       │
-│    │   VDM   │────────│──────────►─│───│融合层│──► ŷ  │
-│    │ ┌─────┐ │        │            │   └─────┘       │
-│    │ │Z_priv│ │        │            │      │           │
-│    │ └──┬──┘ │        │    ∇'      │   L_task(ŷ, y)  │
-│    └────┘    │        │◄───────────│   梯度净化       │
-│  (保留在本地) │        │            └──────────────────┘
-└──────────────────────┘
-
-对抗标签分类器 (ALC)
-   ← 梯度反转层 (GRL) ←── Z_task
+被动方 1: X_1 → BottomModel_1 → h_1 ─┐
+被动方 2: X_2 → BottomModel_2 → h_2 ─┼─→ concat(h_1,..,h_N) → TopModel → y_hat
+   ...                                │                         ↑
+被动方 N: X_N → BottomModel_N → h_N ─┘                    labels Y (主动方)
 ```
 
-**核心模块：**
+### 1.2 Problem: Label Leakage in VFL
 
-| 模块 | 作用 |
-|------|------|
-| **VDM** (变分解耦模块) | 将嵌入分解为 Z_task 和 Z_private，基于重参数化高斯分布 |
-| **ALC** (对抗标签分类器) | 通过梯度反转确保 Z_task 不携带标签信号 |
-| **MI Loss** | KL 散度项，约束 $I(Z_{\text{task}}; Y)$ 的上界 |
-| **HSIC Loss** | Z_task 与 Z_private 之间的独立性约束 |
-| **Recon Loss** | 确保信息无损分解（重构原始嵌入） |
-| **梯度净化** *(可选)* | 投影去除反向传播梯度中的标签相关分量 |
+虽然 VFL 中各方不直接共享原始数据，但研究表明**标签信息可通过多种渠道泄露**：
+
+| 攻击类型 | 代表工作 | 攻击原理 |
+|---------|---------|---------|
+| **Norm Attack** | Li et al., 2022 | 正类样本的梯度范数显著大于负类 |
+| **Direction Attack** | Fu et al., 2022 | 梯度方向编码了标签信息，余弦相似度可区分类别 |
+| **Model Completion** | Fu et al., 2022 | 被动方在本地训练一个分类头直接推断标签 |
+| **Embedding Extension** | Ye et al., 2024 | 扩展嵌入空间，通过梯度反向工程恢复标签 |
+
+这些攻击意味着：**即使不共享原始数据，VFL 中的梯度和嵌入也会泄露标签隐私**。
+
+### 1.3 Existing Defenses and Their Limitations
+
+| 防御方法 | 核心思路 | 主要局限 |
+|---------|---------|---------|
+| **DP-VFL** | 在梯度上加高斯噪声（差分隐私） | 噪声太大严重降低模型精度 |
+| **SVFL** (Zhang 2023) | 两个编码器硬分割特征为 task/private | 确定性分割无理论保证，无可调参数 |
+| **LabObf** (He 2024) | 用随机矩阵混淆软标签 | 仅防梯度攻击，不防模型完成攻击 |
+| **KDk** (Arazzi 2025) | 知识蒸馏 + k-匿名梯度 | k 过大严重影响收敛，无隐私上界 |
+| **MID** (Zou 2023) | 互信息正则化 | 直接约束嵌入 MI，未做子空间分离 |
+
+**核心问题**：现有方法要么缺乏**理论隐私保证**，要么**隐私-效用权衡不可调**，要么**仅防特定攻击类型**。
+
+### 1.4 Our Method: PrivDisen
+
+PrivDisen 提出一种**基于变分推断的解耦表征**方法，在被动方将中间嵌入分解为两个子空间：
+
+- **Z_task**（任务相关表征）：仅包含完成主任务所需的信息，传输给主动方
+- **Z_private**（标签敏感表征）：包含可能泄露标签的信息，**保留在本地不传输**
+
+#### 核心技术创新
+
+**1. 变分解耦模块（VDM）**
+
+不同于 SVFL 的确定性双编码器，VDM 使用**参数化概率分布**（重参数化高斯）实现软分离：
+
+```
+h → VDM → Z_task ~ N(μ_task, σ²_task)    # 传输给主动方
+         → Z_private ~ N(μ_priv, σ²_priv)  # 保留在本地
+```
+
+参数化分布的优势：(1) 天然支持互信息上界约束；(2) 分离边界是软的、可学习的；(3) 重参数化技巧保证端到端可微。
+
+**2. 五项联合损失函数**
+
+```
+L_total = L_task + α·L_adv + β·L_MI + γ·L_recon + δ·L_indep
+```
+
+| 损失项 | 公式 | 作用 |
+|-------|------|------|
+| L_task | CrossEntropy(y_hat, y) | 主分类任务 |
+| L_adv | CE(ALC(GRL(Z_task)), y) | 通过梯度反转层确保 Z_task 不携带标签信号 |
+| L_MI | KL(q(Z_task\|X) \|\| N(0,I)) | 约束 I(Z_task; X) 的上界（VIB 原理） |
+| L_recon | MSE(Decoder(Z_task, Z_priv), h) | 确保信息无损分解 |
+| L_indep | HSIC(Z_task, Z_priv) | Z_task 与 Z_private 的统计独立性 |
+
+**3. 可证明的隐私保证**
+
+基于数据处理不等式 (DPI) 和 Fano 不等式：
+- I(Z_task; Y) ≤ I(Z_task; X) ≤ KL(q||p) = L_MI
+- 由 Fano 不等式，攻击者最优推断准确率 P_attack ≤ (L_MI + log2) / logK
+
+因此 **β 越大 → L_MI 越小 → P_attack 上界越低 → 隐私保护越强**，但模型精度可能下降。β 是唯一的**隐私旋钮（privacy knob）**。
+
+**4. 对抗训练 + DANN 渐进式调度**
+
+α 采用 DANN 式 sigmoid 调度：训练初期 α≈0（模型先学任务），后期 α→1（强化隐私对抗），避免对抗训练早期不稳定。
+
+### 1.5 Comparison with SVFL
+
+| 维度 | SVFL (Zhang 2023) | PrivDisen (Ours) |
+|------|-------------------|-----------------|
+| 分离方式 | 确定性双编码器（硬分割） | 变分推断（软分离，概率分布） |
+| 理论保证 | 无 | Fano + MI bound，显式攻击上界 |
+| 可调性 | 固定 | β 可调，Pareto 曲线 |
+| 独立性约束 | 无 | HSIC 约束 Z_task ⊥ Z_private |
+| 攻击覆盖 | 仅被动 | 被动 + 主动 + 模型完成 |
+| 信息保全 | 无 | 重构损失确保无损分解 |
 
 ---
 
-## 环境安装与快速开始
+## 2. System Architecture
 
-### 前置要求
+```
+Passive Party                           Active Party
+┌──────────────────────────┐          ┌────────────────────┐
+│  X ──► Bottom Model      │          │   Top Model        │
+│         │                │          │      │             │
+│    ┌────▼────┐           │  Z_task  │   ┌──▼──┐         │
+│    │   VDM   │───────────│────────► │───│Fusion│──► y_hat│
+│    │ ┌─────┐ │           │          │   └─────┘         │
+│    │ │Z_priv│ │           │          │      │             │
+│    │ └──┬──┘ │           │   ∇'     │  L_task(y_hat, y) │
+│    └────┘    │           │◄─────────│  Gradient Purify   │
+│  (kept local)│           │          └────────────────────┘
+└──────────────────────────┘
+
+Adversarial Label Classifier (ALC)
+   ← Gradient Reversal Layer (GRL) ←── Z_task
+```
+
+---
+
+## 3. Environment Setup (Step-by-Step)
+
+### 3.1 Prerequisites
 
 - Python 3.9+
-- CUDA 11.x+（可选，有 GPU 则用 GPU，没有则自动回退到 CPU）
+- CUDA 11.x+ (optional; auto-fallback to CPU)
 - Git
+- Windows / Linux / macOS
 
-### 完整流程（从零到跑通实验）
-
-#### Step 1：克隆仓库
+### 3.2 Full Setup
 
 ```bash
-git clone https://github.com/<你的用户名>/PrivDisen.git
+# Step 1: Clone
+git clone https://github.com/<your-username>/PrivDisen.git
 cd PrivDisen
-```
 
-#### Step 2：创建虚拟环境
+# Step 2: Create environment (choose one)
+conda create -n privdisen python=3.9 -y && conda activate privdisen
+# OR: python -m venv venv && source venv/bin/activate  (Linux/Mac)
+# OR: python -m venv venv && venv\Scripts\activate      (Windows)
 
-```bash
-# Linux / macOS
-python3.9 -m venv venv
-source venv/bin/activate
-
-# Windows（PowerShell）
-python -m venv venv
-venv\Scripts\activate
-
-# Windows（CMD）
-python -m venv venv
-venv\Scripts\activate.bat
-
-# conda（全平台通用）
-conda create -n privdisen python=3.9 -y
-conda activate privdisen
-```
-
-#### Step 3：安装 PyTorch
-
-根据你的系统和 CUDA 版本选择（详见 [PyTorch 官网](https://pytorch.org/get-started/locally/)）：
-
-```bash
-# 有 NVIDIA GPU + CUDA 11.8
+# Step 3: Install PyTorch (MUST do this FIRST)
+# GPU + CUDA 11.8:
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
-
-# 有 NVIDIA GPU + CUDA 12.1
+# GPU + CUDA 12.1:
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
-
-# 无 GPU / 仅 CPU（也完全可以跑，只是慢一些）
+# CPU only:
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu
-```
 
-#### Step 4：安装项目依赖
-
-```bash
-# 国内用户推荐使用清华镜像（快很多）
+# Step 4: Install dependencies (China mirror recommended)
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 安装项目本身（必须执行，否则会报 No module named 'data' 错误）
 pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# Step 5: Download datasets
+python data/download.py --dataset all
+
+# Step 6: Verify
+python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 ```
 
-> **💡 可选：永久设置清华镜像**（设一次以后不用每次加 `-i`）
+> **Tip**: Set pip mirror permanently:
 > ```bash
 > pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 > ```
 
-#### Step 5：下载数据集
+---
+
+## 4. Experiments
+
+### 4.1 Experiment Overview
+
+We conduct **5 groups** of experiments for the paper:
+
+| # | Experiment | Paper Section | Script | What it produces |
+|---|-----------|---------------|--------|-----------------|
+| **Exp1** | Main Comparison | Table 1 | `run_main.py` | 6 methods × 3 datasets × 3 attacks → MTA, ASR, PUT |
+| **Exp2** | Multi-Party Scaling | Table 2 | `run_multi_party.py` | PrivDisen with 2/3/4/5 parties → scalability |
+| **Exp3** | Ablation Study | Table 3 | `run_ablation.py` | Remove each loss component → contribution analysis |
+| **Exp4** | Privacy-Utility Pareto | Figure | `run_all_experiments.py` | Sweep β → MTA vs ASR curve |
+| **Exp5** | Visualization | Figure | `run_all_experiments.py` | t-SNE of Z_task / Z_private, training curves |
+
+### 4.2 Methods Compared (6 total)
+
+| Method | Type | Key Parameter | Command |
+|--------|------|---------------|---------|
+| **Vanilla** | No defense | — | `--method vanilla` |
+| **SVFL** | Feature disentangle | alpha_schedule | `--method svfl` |
+| **LabObf** | Label obfuscation | eps=0.3 | `--method labobf` |
+| **KDk** | Knowledge distillation | temperature=4, k=4 | `--method kdk` |
+| **MID** | MI regularization | mi_weight=0.01 | `--method mid` |
+| **PrivDisen** | Ours | beta=0.01 | `--method privdisen` |
+
+### 4.3 Datasets
+
+| Dataset | Type | Samples | Features | Classes | VFL Split |
+|---------|------|---------|----------|---------|-----------|
+| CIFAR-10 | Image | 60K | 3x32x32 | 10 | Channel / Spatial |
+| Adult | Tabular | 48K | 14 | 2 | Column-wise |
+| Bank | Tabular | 45K | 16 | 2 | Column-wise |
+
+### 4.4 Attack Metrics
+
+| Metric | Symbol | Direction | Meaning |
+|--------|--------|-----------|---------|
+| Main Task Accuracy | MTA | ↑ higher is better | Model accuracy on the main classification task |
+| Attack Success Rate | ASR | ↓ lower is better | Attacker's label inference accuracy |
+| Privacy-Utility Tradeoff | PUT | ↑ higher is better | MTA / ASR ratio |
+
+### 4.5 How to Run Each Experiment
+
+#### Exp1: Main Comparison (Table 1)
 
 ```bash
-# 下载 CIFAR-10（自动检测国内镜像）
-python data/download.py --dataset cifar10
+# Run all 6 methods on all 3 datasets (auto-saves results to results/)
+python scripts/run_all_experiments.py --experiment main --epochs 100
 
-# 下载全部数据集
-python data/download.py --dataset all
+# Or run one method at a time:
+python experiments/run_main.py --method vanilla --dataset cifar10
+python experiments/run_main.py --method svfl --dataset cifar10
+python experiments/run_main.py --method labobf --dataset cifar10
+python experiments/run_main.py --method kdk --dataset cifar10
+python experiments/run_main.py --method mid --dataset cifar10
+python experiments/run_main.py --method privdisen --dataset cifar10 --beta 0.01
 ```
 
-> **⚠️ 如果自动下载仍然失败**，可以手动下载：
->
-> 1. 打开 [ModelScope CIFAR-10 页面](https://www.modelscope.cn/datasets/cutedataset/cifar-10/files)
-> 2. 下载 `cifar-10-python.tar.gz`
-> 3. 放到 `data/raw/` 目录下
-> 4. 重新运行 `python data/download.py --dataset cifar10`，会自动检测并解压
-
-#### Step 6：验证安装
+#### Exp2: Multi-Party Scaling (Table 2)
 
 ```bash
-python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
+python scripts/run_all_experiments.py --experiment multi_party --epochs 100
+
+# Or manually:
+python experiments/run_multi_party.py --dataset cifar10 --epochs 100
 ```
 
-#### Step 7：开始训练
-
-> **注意**：`device` 默认为 `auto`（自动检测 GPU/CPU），无需手动指定。
+#### Exp3: Ablation Study (Table 3)
 
 ```bash
-# 训练 PrivDisen（2 方，CIFAR-10）
-python experiments/run_main.py --config configs/default.yaml --method privdisen --num_parties 2 --beta 0.01
+python scripts/run_all_experiments.py --experiment ablation --epochs 100
 
-# 训练 Vanilla VFL（无保护基线，用于对比）
-python experiments/run_main.py --config configs/default.yaml --method vanilla --dataset cifar10
-
-# 指定 GPU
-python experiments/run_main.py --config configs/default.yaml --method privdisen --device cuda:0
+# Or manually:
+python experiments/run_ablation.py --dataset cifar10 --epochs 100
 ```
 
-#### Step 8：评估攻击效果
+#### Exp4: Pareto Curve (beta sweep)
 
 ```bash
-python experiments/run_main.py --config configs/default.yaml --method privdisen --eval_only --checkpoint results/checkpoints/privdisen_best.pt --attacks norm direction model_completion
+python scripts/run_all_experiments.py --experiment pareto --epochs 100
 ```
 
-#### Step 9：运行全部实验
+This sweeps `beta` over {0.001, 0.005, 0.01, 0.05, 0.1, 0.5} and records MTA vs ASR.
 
-> **跨平台**：使用 Python 脚本代替 bash，Windows / Linux / macOS 均可直接运行。
+#### Exp5: Run ALL experiments at once
 
 ```bash
-# 主对比实验
-python scripts/train.py
+# This runs Exp1-Exp4 sequentially and saves everything
+python scripts/run_all_experiments.py --experiment all --epochs 100
 
-# 多方实验 + 消融实验
-python scripts/eval.py
-
-# 自定义参数
-python scripts/train.py --device cuda:0 --epochs 50 --datasets cifar10 adult
-python scripts/eval.py --device cpu --epochs 20
+# With custom device
+python scripts/run_all_experiments.py --experiment all --epochs 100 --device cuda:0
 ```
 
-### ⚠️ 常见问题
+All results are automatically saved to:
+- `results/logs/` — training logs
+- `results/experiment_records/` — CSV/JSON with all metrics
+- `results/checkpoints/` — model weights
+- `results/figures/` — plots and visualizations
 
-**Q: 运行时报错 `No module named 'data'` 或 `No module named 'models'`**
+### 4.6 Expected Results
 
-A: 这是因为没有执行 `pip install -e .`。这一步将项目注册为可编辑 Python 包，使得 `data`、`models`、`losses` 等内部模块可以在任意位置正确导入。
+| Method | CIFAR-10 MTA ↑ | CIFAR-10 ASR ↓ | Privacy Improvement |
+|--------|----------------|----------------|---------------------|
+| Vanilla | ~92% | ~85% | None (baseline) |
+| SVFL | ~90% | ~45% | Moderate |
+| LabObf | ~88% | ~55% | Low-Moderate |
+| KDk | ~89% | ~50% | Moderate |
+| MID | ~90% | ~40% | Good |
+| **PrivDisen** | **~91%** | **~15%** | **Best** |
 
-```bash
-pip install -e .
-```
-
-如果不想安装，也可以在运行时指定 `PYTHONPATH`：
-
-```bash
-# Linux / macOS
-PYTHONPATH=. python experiments/run_main.py --method privdisen
-
-# Windows PowerShell
-$env:PYTHONPATH="."; python experiments/run_main.py --method privdisen
-
-# Windows CMD
-set PYTHONPATH=. && python experiments/run_main.py --method privdisen
-```
-
-**Q: Windows 上运行 `bash scripts/train.sh` 报错？**
-
-A: `.sh` 脚本是 Linux/macOS 的 Shell 脚本，Windows 无法直接运行。请改用 Python 脚本：
-
-```bash
-# 代替 bash scripts/train.sh
-python scripts/train.py
-
-# 代替 bash scripts/eval.sh
-python scripts/eval.py
-```
-
-**Q: 没有 GPU 能跑吗？**
-
-A: 可以。`device` 默认为 `auto`，会自动检测：有 CUDA 用 GPU，否则用 CPU。CPU 模式下训练较慢，但完全可以正确运行。如需手动指定：
-
-```bash
-python experiments/run_main.py --device cpu --method privdisen
-```
-
-**Q: 数据集下载很慢怎么办？**
-
-A: 下载脚本会自动尝试 ModelScope（阿里云 OSS）→ 国内镜像 → 官方源。如果仍然失败，参考 Step 5 中的手动下载方式，浏览器打开链接下载后放到 `data/raw/` 目录即可。
-
-**Q: 可用的 pip 镜像源有哪些？**
-
-| 镜像源 | 地址 |
-|--------|------|
-| 清华 | `https://pypi.tuna.tsinghua.edu.cn/simple` |
-| 阿里云 | `https://mirrors.aliyun.com/pypi/simple` |
-| 中科大 | `https://pypi.mirrors.ustc.edu.cn/simple` |
+> Note: These are target ranges. Actual numbers depend on hyperparameters and training.
 
 ---
 
-## 项目结构
+## 5. Project Structure
 
 ```
 PrivDisen/
-├── configs/                     # YAML 配置文件
-│   └── default.yaml             # 默认超参数
+├── configs/
+│   └── default.yaml                 # Default hyperparameters
 │
-├── data/                        # 数据加载与 VFL 划分
-│   ├── datasets.py              # 数据集加载器（CIFAR-10/100, MNIST, Adult, Bank）
-│   ├── vfl_partition.py         # N 方特征划分（支持图像和表格）
-│   └── download.py              # 数据自动下载脚本
+├── data/
+│   ├── datasets.py                  # Dataset loaders (CIFAR/MNIST/Adult/Bank)
+│   ├── vfl_partition.py             # N-party VFL feature partitioning
+│   └── download.py                  # Auto download with China mirrors
 │
-├── models/                      # 模型定义
-│   ├── bottom_model.py          # 被动方底层模型（CNN / MLP）
-│   ├── top_model.py             # 主动方顶层分类器
-│   ├── vdm.py                   # ★ 变分解耦模块 (VDM)
-│   ├── adversarial.py           # ★ 对抗标签分类器 (ALC) + 梯度反转层 (GRL)
-│   ├── gradient_purifier.py     # 梯度净化模块（可选）
-│   └── reconstruction.py        # 重构解码器
+├── models/
+│   ├── bottom_model.py              # Passive party bottom models (CNN/MLP)
+│   ├── top_model.py                 # Active party top classifier
+│   ├── vdm.py                      # ★ Variational Disentangle Module
+│   ├── adversarial.py              # ★ ALC + GRL + alpha scheduling
+│   ├── gradient_purifier.py        # Gradient purification (optional)
+│   └── reconstruction.py           # Reconstruction decoder
 │
-├── losses/                      # 损失函数
-│   ├── task_loss.py             # 交叉熵（主任务）
-│   ├── mi_loss.py               # KL 散度（互信息上界）
-│   ├── hsic_loss.py             # HSIC 独立性约束
-│   └── reconstruction_loss.py   # MSE 重构损失
+├── losses/
+│   ├── task_loss.py                # Cross-entropy (main task)
+│   ├── mi_loss.py                  # KL divergence (MI upper bound)
+│   ├── hsic_loss.py                # HSIC independence constraint
+│   └── reconstruction_loss.py      # MSE reconstruction
 │
-├── attacks/                     # 标签推断攻击
-│   ├── norm_attack.py           # 基于梯度范数的被动攻击
-│   ├── direction_attack.py      # 基于梯度方向的被动攻击
-│   ├── model_completion.py      # 模型完成攻击
-│   └── embedding_extension.py   # 嵌入扩展攻击
+├── attacks/
+│   ├── norm_attack.py              # Gradient norm passive attack
+│   ├── direction_attack.py         # Gradient direction passive attack
+│   ├── model_completion.py         # Model completion attack
+│   └── embedding_extension.py      # Embedding extension attack
 │
-├── trainers/                    # 训练器
-│   ├── vfl_trainer.py           # Vanilla VFL 训练器（基线）
-│   └── privdisen_trainer.py     # ★ PrivDisen 训练器（完整流程）
+├── baselines/
+│   ├── svfl.py                     # SVFL (Zhang et al., 2023)
+│   ├── labobf.py                   # LabObf (He et al., 2024)
+│   ├── kdk.py                      # KDk (Arazzi et al., 2025)
+│   └── mid.py                      # MID (Zou et al., 2023)
 │
-├── baselines/                   # 基线方法实现
+├── trainers/
+│   ├── vfl_trainer.py              # Vanilla VFL trainer
+│   └── privdisen_trainer.py        # ★ PrivDisen trainer
 │
-├── evaluation/                  # 评估与可视化
-│   ├── metrics.py               # MTA, ASR, PUT 等指标
-│   ├── attack_eval.py           # 攻击评估流水线
-│   └── visualization.py         # t-SNE、Pareto 曲线、训练曲线
+├── evaluation/
+│   ├── metrics.py                  # MTA, ASR, PUT metrics
+│   ├── attack_eval.py              # Attack evaluation pipeline
+│   └── visualization.py            # t-SNE, Pareto, training curves
 │
-├── experiments/                 # 实验入口
-│   ├── run_main.py              # 主对比实验（表1）
-│   ├── run_multi_party.py       # 多方扩展实验（表2）
-│   └── run_ablation.py          # 消融实验（表3）
+├── experiments/
+│   ├── run_main.py                 # Main comparison (Table 1)
+│   ├── run_multi_party.py          # Multi-party experiment (Table 2)
+│   └── run_ablation.py             # Ablation study (Table 3)
 │
-├── utils/                       # 工具函数
-│   ├── logger.py                # 日志
-│   ├── seed.py                  # 随机种子
-│   └── config.py                # 配置管理（YAML + CLI）
+├── scripts/
+│   ├── run_all_experiments.py      # ★ Automated experiment runner
+│   ├── train.py                    # Quick training (cross-platform)
+│   └── eval.py                     # Quick evaluation (cross-platform)
 │
-├── scripts/                     # 运行脚本
-│   ├── train.py                 # 一键训练（跨平台）
-│   ├── eval.py                  # 一键评估（跨平台）
-│   ├── train.sh                 # 一键训练（仅 Linux/macOS）
-│   └── eval.sh                  # 一键评估（仅 Linux/macOS）
-│
-├── results/                     # 输出目录（已 gitignore）
+├── results/                        # Output (gitignored)
 │   ├── logs/
 │   ├── checkpoints/
-│   └── figures/
+│   ├── figures/
+│   └── experiment_records/         # Auto-saved CSV/JSON
 │
-├── setup.py                     # 项目安装配置
-├── requirements.txt             # 依赖清单
-├── .gitignore
-├── LICENSE
+├── setup.py
+├── requirements.txt
+├── PrivDisen_Handover.md           # Project roadmap
 └── README.md
 ```
 
 ---
 
-## 快速开始
+## 6. Configuration
 
-### 1. 下载数据
-
-```bash
-python data/download.py --dataset cifar10
-```
-
-### 2. 训练 PrivDisen（2 方，CIFAR-10）
-
-```bash
-python experiments/run_main.py --config configs/default.yaml --method privdisen --num_parties 2 --beta 0.01
-```
-
-### 3. 评估攻击效果
-
-```bash
-python experiments/run_main.py --config configs/default.yaml --method privdisen --eval_only --checkpoint results/checkpoints/privdisen_best.pt --attacks norm direction model_completion
-```
-
-### 4. 运行全部实验
-
-```bash
-# 主对比实验
-python scripts/train.py
-
-# 多方实验 + 消融实验
-python scripts/eval.py
-```
-
----
-
-## 数据集
-
-| 数据集 | 类型 | 样本量 | 特征维度 | 类别数 | VFL 划分方式 |
-|--------|------|--------|---------|--------|-------------|
-| CIFAR-10 | 图像 | 60K | 3×32×32 | 10 | 按通道 / 按空间区域 |
-| CIFAR-100 | 图像 | 60K | 3×32×32 | 100 | 按通道 / 按空间区域 |
-| MNIST | 图像 | 70K | 1×28×28 | 10 | 左半 / 右半 |
-| Adult | 表格 | 48K | 14 | 2 | 按特征列 |
-| Bank | 表格 | 45K | 16 | 2 | 按特征列 |
-| Criteo | 表格 | 100K | 39 | 2 | 按特征列 |
-
-数据集在首次使用时自动下载。表格数据集来源于 UCI 机器学习仓库。
-
----
-
-## 实验
-
-### 实验总览
-
-| 实验 | 脚本 | 说明 |
-|------|------|------|
-| **主对比实验** | `run_main.py` | PrivDisen vs. 7 个基线 × 6 数据集 × 4 种攻击 |
-| **多方实验** | `run_multi_party.py` | 2/3/4/5 个被动方的扩展性实验 |
-| **消融实验** | `run_ablation.py` | 各损失分量的贡献分析 |
-
-### 核心指标
-
-| 指标 | 符号 | 方向 | 含义 |
-|------|------|------|------|
-| 主任务准确率 | MTA | ↑ | 模型在主任务上的精度 |
-| 攻击成功率 | ASR | ↓ | 攻击者推断标签的准确率 |
-| 隐私-效用权衡 | PUT | ↑ | MTA / ASR 比值 |
-
----
-
-## 配置说明
-
-所有超参数通过 `configs/` 目录下的 YAML 文件管理。关键参数：
+All hyperparameters in `configs/default.yaml`. Key parameters:
 
 ```yaml
-# 训练
-epochs: 100
+# Device
+device: "auto"            # auto | cuda:0 | cpu
+
+# VFL
+num_parties: 2
 batch_size: 256
-lr: 0.001
-optimizer: adam
+epochs: 100
 
-# VFL 设置
-num_parties: 2           # 被动方数量
-task_dim: 128             # Z_task 维度
-private_dim: 64           # Z_private 维度
-
-# PrivDisen 损失权重
-alpha_schedule: "dann"    # 对抗强度：渐进增大
-beta: 0.01                # MI 约束强度（隐私旋钮）
-gamma: 1.0                # 重构损失权重
-delta: 0.1                # HSIC 独立性权重
-
-# 设备
-device: "cuda:0"
-seed: 42
+# PrivDisen
+task_dim: 128             # Z_task dimension
+private_dim: 64           # Z_private dimension
+beta: 0.01                # MI constraint (privacy knob: larger = more private)
+gamma: 1.0                # Reconstruction weight
+delta: 0.1                # HSIC independence weight
+alpha_schedule: "dann"    # Adversarial strength: dann | linear | constant
 ```
 
-命令行覆盖任意参数：
-
+Override from command line:
 ```bash
-python experiments/run_main.py --config configs/default.yaml --beta 0.1 --num_parties 3
+python experiments/run_main.py --beta 0.1 --num_parties 3 --epochs 50
 ```
 
 ---
 
-## 实验结果
+## 7. FAQ
 
-> 运行实验后自动填充。
+**Q: `No module named 'data'`?**
+```bash
+pip install -e .
+```
 
-### 预期效果
+**Q: Windows `bash scripts/train.sh` error?**
+Use Python scripts instead: `python scripts/train.py`
 
-- **MTA**：与无保护的 Vanilla VFL 相比，精度损失控制在 1-3% 以内
-- **ASR**：降低至接近随机猜测水平（K 分类时为 1/K）
-- **多方场景**：2-5 方场景下保护效果一致
-- **Pareto 曲线**：PrivDisen 在相同 ASR 下取得更高 MTA，优于已有方法
+**Q: No GPU?**
+Works on CPU automatically. `device: "auto"` detects CUDA.
+
+**Q: Dataset download slow?**
+Auto-tries ModelScope (Aliyun) → China mirrors → official. Manual: download to `data/raw/`.
 
 ---
 
-## 引用
-
-如果本工作对你有帮助，请引用：
+## 8. Citation
 
 ```bibtex
 @article{privdisen2026,
@@ -457,23 +427,15 @@ python experiments/run_main.py --config configs/default.yaml --beta 0.1 --num_pa
 
 ---
 
-## 相关工作
+## 9. Related Work
 
-- **SVFL** – Zhang et al., *Signal Processing* 2023 — 基于两分类器的特征解纠缠
-- **LabObf** – He et al., 2024 — 随机软标签映射的标签混淆
-- **KDk** – Arazzi et al., *Neurocomputing* 2025 — 知识蒸馏 + k-匿名
-- **LADSG** – Yan et al., 2025 — 标签匿名化蒸馏 + 梯度替代
-- **VMask** – Tan et al., *FCS* 2025 — 基于秘密共享的层掩码
-- **MID** – Zou et al., 2023 — 互信息正则化防御
+- **SVFL** – Zhang et al., *Signal Processing* 2023
+- **LabObf** – He et al., 2024
+- **KDk** – Arazzi et al., *Neurocomputing* 2025
+- **LADSG** – Yan et al., 2025
+- **VMask** – Tan et al., *FCS* 2025
+- **MID** – Zou et al., 2023
 
----
+## License
 
-## 许可证
-
-本项目基于 MIT 许可证开源，详见 [LICENSE](LICENSE)。
-
----
-
-## 致谢
-
-本工作参考了 [VFLAIR](https://github.com/FLAIR-THU/VFLAIR) 纵向联邦学习攻防评估基准。
+MIT License. See [LICENSE](LICENSE).

@@ -41,17 +41,22 @@ def main():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--datasets", nargs="+", default=["cifar10", "adult", "bank"],
                         help="要训练的数据集列表")
-    parser.add_argument("--methods", nargs="+", default=["vanilla", "privdisen"],
-                        help="要训练的方法列表")
+    parser.add_argument("--methods", nargs="+",
+                        default=["vanilla", "svfl", "labobf", "kdk", "mid", "privdisen"],
+                        help="methods to train")
     parser.add_argument("--num_parties", type=int, default=2)
     args = parser.parse_args()
 
-    # 自动检测设备
+    # Auto-detect device (robust check)
     if args.device == "auto":
         try:
             import torch
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        except ImportError:
+            if torch.cuda.is_available():
+                torch.zeros(1, device="cuda")  # verify CUDA actually works
+                device = "cuda:0"
+            else:
+                device = "cpu"
+        except Exception:
             device = "cpu"
     else:
         device = args.device

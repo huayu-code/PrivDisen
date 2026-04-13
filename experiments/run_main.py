@@ -27,6 +27,7 @@ import json
 from utils import load_config, set_seed, get_logger
 from data import load_dataset, get_num_classes, is_image_dataset, build_vfl_dataloaders
 from trainers import VFLTrainer, PrivDisenTrainer
+from baselines import SVFLTrainer, LabObfTrainer, KDkTrainer, MIDTrainer
 from evaluation import evaluate_attacks, compute_metrics, format_metrics
 from evaluation.visualization import plot_training_curves, plot_tsne
 
@@ -65,6 +66,7 @@ def main():
     logger.info(f"Feature dims per party: {feature_dims}")
 
     # ---- Trainer ----
+    bm_type = "cnn" if is_img else "mlp"
     embedding_dim = cfg.get("task_dim", 128) if method != "vanilla" else 128
 
     if method == "vanilla":
@@ -83,7 +85,7 @@ def main():
         trainer = PrivDisenTrainer(
             feature_dims=feature_dims,
             num_classes=num_classes,
-            bottom_model_type="cnn" if is_img else "mlp",
+            bottom_model_type=bm_type,
             embedding_dim=embedding_dim,
             task_dim=cfg.get("task_dim", 128),
             private_dim=cfg.get("private_dim", 64),
@@ -101,9 +103,66 @@ def main():
             device=device,
             log_dir=cfg.get("log_dir"),
         )
+    elif method == "svfl":
+        trainer = SVFLTrainer(
+            feature_dims=feature_dims,
+            num_classes=num_classes,
+            bottom_model_type=bm_type,
+            embedding_dim=embedding_dim,
+            task_dim=cfg.get("task_dim", 128),
+            private_dim=cfg.get("private_dim", 64),
+            top_hidden_dim=cfg.get("top_hidden_dim", 256),
+            alpha_schedule=cfg.get("alpha_schedule", "dann"),
+            alpha_max=cfg.get("alpha_max", 1.0),
+            lr=cfg.get("lr", 1e-3),
+            weight_decay=cfg.get("weight_decay", 1e-4),
+            device=device,
+            log_dir=cfg.get("log_dir"),
+        )
+    elif method == "labobf":
+        trainer = LabObfTrainer(
+            feature_dims=feature_dims,
+            num_classes=num_classes,
+            bottom_model_type=bm_type,
+            embedding_dim=embedding_dim,
+            top_hidden_dim=cfg.get("top_hidden_dim", 256),
+            eps=cfg.get("labobf_eps", 0.3),
+            lr=cfg.get("lr", 1e-3),
+            weight_decay=cfg.get("weight_decay", 1e-4),
+            device=device,
+            log_dir=cfg.get("log_dir"),
+        )
+    elif method == "kdk":
+        trainer = KDkTrainer(
+            feature_dims=feature_dims,
+            num_classes=num_classes,
+            bottom_model_type=bm_type,
+            embedding_dim=embedding_dim,
+            top_hidden_dim=cfg.get("top_hidden_dim", 256),
+            temperature=cfg.get("kd_temperature", 4.0),
+            kd_alpha=cfg.get("kd_alpha", 0.7),
+            k_anon=cfg.get("k_anon", 4),
+            lr=cfg.get("lr", 1e-3),
+            weight_decay=cfg.get("weight_decay", 1e-4),
+            device=device,
+            log_dir=cfg.get("log_dir"),
+        )
+    elif method == "mid":
+        trainer = MIDTrainer(
+            feature_dims=feature_dims,
+            num_classes=num_classes,
+            bottom_model_type=bm_type,
+            embedding_dim=embedding_dim,
+            top_hidden_dim=cfg.get("top_hidden_dim", 256),
+            mi_weight=cfg.get("beta", 0.01),
+            lr=cfg.get("lr", 1e-3),
+            weight_decay=cfg.get("weight_decay", 1e-4),
+            device=device,
+            log_dir=cfg.get("log_dir"),
+        )
     else:
-        raise ValueError(f"Method '{method}' not yet implemented. "
-                         f"Use 'vanilla' or 'privdisen'.")
+        raise ValueError(f"Unknown method '{method}'. Choose from: "
+                         f"vanilla, privdisen, svfl, labobf, kdk, mid.")
 
     # ---- Train ----
     if not cfg.get("eval_only", False):

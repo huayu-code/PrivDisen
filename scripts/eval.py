@@ -41,12 +41,16 @@ def main():
     parser.add_argument("--dataset", type=str, default="cifar10")
     args = parser.parse_args()
 
-    # 自动检测设备
+    # Auto-detect device (robust check)
     if args.device == "auto":
         try:
             import torch
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        except ImportError:
+            if torch.cuda.is_available():
+                torch.zeros(1, device="cuda")  # verify CUDA actually works
+                device = "cuda:0"
+            else:
+                device = "cpu"
+        except Exception:
             device = "cpu"
     else:
         device = args.device

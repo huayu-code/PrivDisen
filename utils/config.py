@@ -109,6 +109,26 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _cuda_is_really_available() -> bool:
+    """Check if CUDA is truly usable (not just torch.cuda.is_available)."""
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False
+        # Actually try to use CUDA — catches "Torch not compiled with CUDA enabled"
+        torch.zeros(1, device="cuda")
+        return True
+    except Exception:
+        return False
+
+
+def _detect_device() -> str:
+    """Auto-detect best available device."""
+    if _cuda_is_really_available():
+        return "cuda:0"
+    return "cpu"
+
+
 def load_config(args: Optional[argparse.Namespace] = None) -> Config:
     """Load YAML config and merge CLI overrides."""
     if args is None:
@@ -125,14 +145,16 @@ def load_config(args: Optional[argparse.Namespace] = None) -> Config:
                      if k != "config" and v is not None}
     cfg = cfg.merge(cli_overrides)
 
-    # 自动检测设备：device="auto" 时自动选择 cuda 或 cpu
+    # Auto-detect device: robust CUDA check
     device = cfg.get("device", "auto")
     if device == "auto":
-        try:
-            import torch
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        except ImportError:
-            device = "cpu"
+        device = _detect_device()
         cfg = cfg.merge({"device": device})
+    elif device.startswith("cuda"):
+        # User explicitly requested CUDA — verify it actually works
+        if not _cuda_is_really_available():
+            print(f"[WARNING] device={device} requested but CUDA is not available, falling back to cpu")
+            device = "cpu"
+            cfg = cfg.merge({"device": device})
 
     return cfg
