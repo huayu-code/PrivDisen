@@ -127,29 +127,22 @@ pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 #### Step 5：下载数据集
 
-数据集通过 HuggingFace 国内镜像 (hf-mirror.com) 下载，支持**断点续传**：
+使用 ModelScope SDK 下载，走**阿里云 OSS**，国内速度快：
 
 ```bash
 # 下载 CIFAR-10
 python data/download.py --dataset cifar10
 
-# 下载 CIFAR-100
-python data/download.py --dataset cifar100
-
-# 一键下载全部数据集
+# 下载全部数据集
 python data/download.py --dataset all
 ```
 
-> **⚠️ 如果下载仍然很慢**，可以手动在浏览器打开以下链接下载，然后放到 `data/raw/` 目录下：
+> **⚠️ 如果自动下载仍然失败**，可以手动下载：
 >
-> | 数据集 | 浏览器下载链接 | 放到 |
-> |--------|--------------|------|
-> | CIFAR-10 | [点击下载](https://hf-mirror.com/datasets/uoft-cs/cifar10/resolve/main/cifar-10-python.tar.gz) | `data/raw/cifar-10-python.tar.gz` |
-> | CIFAR-100 | [点击下载](https://hf-mirror.com/datasets/uoft-cs/cifar100/resolve/main/cifar-100-python.tar.gz) | `data/raw/cifar-100-python.tar.gz` |
-> | MNIST | 自动下载，无需手动 | — |
-> | Adult / Bank | 自动下载，文件很小 | — |
->
-> 放好后重新运行 `python data/download.py --dataset cifar10`，会自动检测到文件并解压。
+> 1. 打开 [ModelScope CIFAR-10 页面](https://www.modelscope.cn/datasets/cutedataset/cifar-10/files)
+> 2. 下载 `cifar-10-python.tar.gz`
+> 3. 放到 `data/raw/` 目录下
+> 4. 重新运行 `python data/download.py --dataset cifar10`，会自动检测并解压
 
 #### Step 6：验证安装
 

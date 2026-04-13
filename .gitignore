@@ -6,6 +6,7 @@ results/figures/*
 !results/checkpoints/.gitkeep
 !results/figures/.gitkeep
 
+
 # Data
 data/raw/
 data/processed/
@@ -43,3 +44,7 @@ Thumbs.db
 # Misc
 *.log
 wandb/
+
+
+# codebuddy
+.codebuddy
