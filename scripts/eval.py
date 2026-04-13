@@ -11,14 +11,25 @@ PrivDisen Evaluation Pipeline — 跨平台 Python 脚本。
 import argparse
 import subprocess
 import sys
+import os
+
+# Windows console UTF-8 support
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
 
 
 def run_cmd(args_list):
     """运行子进程，实时打印输出，失败时退出。"""
     print(f"\n>>> {' '.join(args_list)}")
-    result = subprocess.run(args_list, text=True)
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    result = subprocess.run(args_list, env=env)
     if result.returncode != 0:
-        print(f"[错误] 命令返回码: {result.returncode}")
+        print(f"[Error] return code: {result.returncode}")
         sys.exit(result.returncode)
 
 

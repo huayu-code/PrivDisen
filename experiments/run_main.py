@@ -9,6 +9,14 @@ Usage:
 import sys
 import os
 
+# Windows console UTF-8 support
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
 # Ensure project root is on sys.path regardless of where the script is invoked
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
@@ -145,7 +153,7 @@ def main():
         f"{method}_{dataset}_{num_parties}p_results.json",
     )
     os.makedirs(os.path.dirname(result_path), exist_ok=True)
-    with open(result_path, "w") as f:
+    with open(result_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
     logger.info(f"Results saved to {result_path}")
 

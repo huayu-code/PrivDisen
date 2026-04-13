@@ -51,7 +51,7 @@ class Config:
     # ------------------------------------------------------------------
     @classmethod
     def from_yaml(cls, path: str) -> "Config":
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             cfg_dict = yaml.safe_load(f)
         return cls(cfg_dict or {})
 

@@ -4,12 +4,12 @@
 
 # --- General ---
 seed: 42
-device: "auto"            # auto | cuda:0 | cpu （auto 会自动检测）
+device: "auto"            # auto | cuda:0 | cpu (auto-detect)
 
 # --- Dataset ---
 dataset: "cifar10"
 data_dir: "data/raw"
-num_workers: 0            # Windows 兼容：设为 0；Linux/macOS 可改为 4
+num_workers: 0            # Windows: must be 0; Linux/macOS: can set to 4
 
 # --- VFL ---
 num_parties: 2                # number of passive parties

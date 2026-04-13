@@ -9,6 +9,14 @@ Usage:
 import sys
 import os
 
+# Windows console UTF-8 support
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
@@ -93,7 +101,7 @@ def main():
         cfg.get("log_dir", "results/logs"),
         f"ablation_{dataset}_results.json",
     )
-    with open(result_path, "w") as f:
+    with open(result_path, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2)
     logger.info(f"\nAblation results saved to {result_path}")
 
