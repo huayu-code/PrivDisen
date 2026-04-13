@@ -10,6 +10,7 @@ from typing import List, Tuple
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+import platform
 
 
 # ======================================================================
@@ -140,6 +141,14 @@ def build_vfl_dataloaders(
     Returns:
         train_loader, test_loader, feature_dims (list of int per party)
     """
+    # Windows 不支持 DataLoader 的 fork 多进程，需要 num_workers=0
+    if platform.system() == "Windows" and num_workers > 0:
+        print("[提示] Windows 系统检测到，自动设置 num_workers=0 以避免多进程错误")
+        num_workers = 0
+
+    # pin_memory 仅在 CUDA 可用时生效
+    use_pin_memory = torch.cuda.is_available()
+
     train_parts = partition_features(X_train, num_parties, is_image)
     test_parts = partition_features(X_test, num_parties, is_image)
 
@@ -154,7 +163,7 @@ def build_vfl_dataloaders(
         shuffle=True,
         num_workers=num_workers,
         collate_fn=vfl_collate_fn,
-        pin_memory=True,
+        pin_memory=use_pin_memory,
         drop_last=True,
     )
     test_loader = DataLoader(
@@ -163,7 +172,7 @@ def build_vfl_dataloaders(
         shuffle=False,
         num_workers=num_workers,
         collate_fn=vfl_collate_fn,
-        pin_memory=True,
+        pin_memory=use_pin_memory,
     )
 
     return train_loader, test_loader, feature_dims

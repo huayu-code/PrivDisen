@@ -73,8 +73,8 @@
 
 ### 前置要求
 
-- Python 3.9
-- CUDA 11.x+（需要 GPU）
+- Python 3.9+
+- CUDA 11.x+（可选，有 GPU 则用 GPU，没有则自动回退到 CPU）
 - Git
 
 ### 完整流程（从零到跑通实验）
@@ -93,21 +93,32 @@ cd PrivDisen
 python3.9 -m venv venv
 source venv/bin/activate
 
-# Windows
+# Windows（PowerShell）
 python -m venv venv
 venv\Scripts\activate
+
+# Windows（CMD）
+python -m venv venv
+venv\Scripts\activate.bat
+
+# conda（全平台通用）
+conda create -n privdisen python=3.9 -y
+conda activate privdisen
 ```
 
 #### Step 3：安装 PyTorch
 
-根据你的 CUDA 版本选择（详见 [PyTorch 官网](https://pytorch.org/get-started/locally/)）：
+根据你的系统和 CUDA 版本选择（详见 [PyTorch 官网](https://pytorch.org/get-started/locally/)）：
 
 ```bash
-# CUDA 11.8
+# 有 NVIDIA GPU + CUDA 11.8
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 
-# CUDA 12.1
+# 有 NVIDIA GPU + CUDA 12.1
 pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
+
+# 无 GPU / 仅 CPU（也完全可以跑，只是慢一些）
+pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
 #### Step 4：安装项目依赖
@@ -127,10 +138,8 @@ pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 #### Step 5：下载数据集
 
-使用 ModelScope SDK 下载，走**阿里云 OSS**，国内速度快：
-
 ```bash
-# 下载 CIFAR-10
+# 下载 CIFAR-10（自动检测国内镜像）
 python data/download.py --dataset cifar10
 
 # 下载全部数据集
@@ -152,44 +161,39 @@ python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.
 
 #### Step 7：开始训练
 
+> **注意**：`device` 默认为 `auto`（自动检测 GPU/CPU），无需手动指定。
+
 ```bash
 # 训练 PrivDisen（2 方，CIFAR-10）
-python experiments/run_main.py \
-    --config configs/default.yaml \
-    --method privdisen \
-    --num_parties 2 \
-    --beta 0.01 \
-    --device cuda:0 \
-    --seed 42
+python experiments/run_main.py --config configs/default.yaml --method privdisen --num_parties 2 --beta 0.01
 
 # 训练 Vanilla VFL（无保护基线，用于对比）
-python experiments/run_main.py \
-    --config configs/default.yaml \
-    --method vanilla \
-    --dataset cifar10 \
-    --device cuda:0
+python experiments/run_main.py --config configs/default.yaml --method vanilla --dataset cifar10
+
+# 指定 GPU
+python experiments/run_main.py --config configs/default.yaml --method privdisen --device cuda:0
 ```
 
 #### Step 8：评估攻击效果
 
 ```bash
-python experiments/run_main.py \
-    --config configs/default.yaml \
-    --method privdisen \
-    --eval_only \
-    --checkpoint results/checkpoints/privdisen_best.pt \
-    --attacks norm direction model_completion \
-    --device cuda:0
+python experiments/run_main.py --config configs/default.yaml --method privdisen --eval_only --checkpoint results/checkpoints/privdisen_best.pt --attacks norm direction model_completion
 ```
 
 #### Step 9：运行全部实验
 
+> **跨平台**：使用 Python 脚本代替 bash，Windows / Linux / macOS 均可直接运行。
+
 ```bash
 # 主对比实验
-bash scripts/train.sh
+python scripts/train.py
 
 # 多方实验 + 消融实验
-bash scripts/eval.sh
+python scripts/eval.py
+
+# 自定义参数
+python scripts/train.py --device cuda:0 --epochs 50 --datasets cifar10 adult
+python scripts/eval.py --device cpu --epochs 20
 ```
 
 ### ⚠️ 常见问题
@@ -210,11 +214,34 @@ PYTHONPATH=. python experiments/run_main.py --method privdisen
 
 # Windows PowerShell
 $env:PYTHONPATH="."; python experiments/run_main.py --method privdisen
+
+# Windows CMD
+set PYTHONPATH=. && python experiments/run_main.py --method privdisen
+```
+
+**Q: Windows 上运行 `bash scripts/train.sh` 报错？**
+
+A: `.sh` 脚本是 Linux/macOS 的 Shell 脚本，Windows 无法直接运行。请改用 Python 脚本：
+
+```bash
+# 代替 bash scripts/train.sh
+python scripts/train.py
+
+# 代替 bash scripts/eval.sh
+python scripts/eval.py
+```
+
+**Q: 没有 GPU 能跑吗？**
+
+A: 可以。`device` 默认为 `auto`，会自动检测：有 CUDA 用 GPU，否则用 CPU。CPU 模式下训练较慢，但完全可以正确运行。如需手动指定：
+
+```bash
+python experiments/run_main.py --device cpu --method privdisen
 ```
 
 **Q: 数据集下载很慢怎么办？**
 
-A: 参考 Step 5 中的手动下载方式，浏览器打开链接下载后放到 `data/raw/` 目录即可。
+A: 下载脚本会自动尝试 ModelScope（阿里云 OSS）→ 国内镜像 → 官方源。如果仍然失败，参考 Step 5 中的手动下载方式，浏览器打开链接下载后放到 `data/raw/` 目录即可。
 
 **Q: 可用的 pip 镜像源有哪些？**
 
@@ -280,8 +307,10 @@ PrivDisen/
 │   └── config.py                # 配置管理（YAML + CLI）
 │
 ├── scripts/                     # 运行脚本
-│   ├── train.sh                 # 一键训练
-│   └── eval.sh                  # 一键评估
+│   ├── train.py                 # 一键训练（跨平台）
+│   ├── eval.py                  # 一键评估（跨平台）
+│   ├── train.sh                 # 一键训练（仅 Linux/macOS）
+│   └── eval.sh                  # 一键评估（仅 Linux/macOS）
 │
 ├── results/                     # 输出目录（已 gitignore）
 │   ├── logs/
@@ -308,35 +337,23 @@ python data/download.py --dataset cifar10
 ### 2. 训练 PrivDisen（2 方，CIFAR-10）
 
 ```bash
-python experiments/run_main.py \
-    --config configs/default.yaml \
-    --method privdisen \
-    --num_parties 2 \
-    --beta 0.01 \
-    --device cuda:0 \
-    --seed 42
+python experiments/run_main.py --config configs/default.yaml --method privdisen --num_parties 2 --beta 0.01
 ```
 
 ### 3. 评估攻击效果
 
 ```bash
-python experiments/run_main.py \
-    --config configs/default.yaml \
-    --method privdisen \
-    --eval_only \
-    --checkpoint results/checkpoints/privdisen_best.pt \
-    --attacks norm direction model_completion \
-    --device cuda:0
+python experiments/run_main.py --config configs/default.yaml --method privdisen --eval_only --checkpoint results/checkpoints/privdisen_best.pt --attacks norm direction model_completion
 ```
 
 ### 4. 运行全部实验
 
 ```bash
 # 主对比实验
-bash scripts/train.sh
+python scripts/train.py
 
 # 多方实验 + 消融实验
-bash scripts/eval.sh
+python scripts/eval.py
 ```
 
 ---

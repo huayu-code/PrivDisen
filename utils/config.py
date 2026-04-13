@@ -124,4 +124,15 @@ def load_config(args: Optional[argparse.Namespace] = None) -> Config:
     cli_overrides = {k: v for k, v in vars(args).items()
                      if k != "config" and v is not None}
     cfg = cfg.merge(cli_overrides)
+
+    # 自动检测设备：device="auto" 时自动选择 cuda 或 cpu
+    device = cfg.get("device", "auto")
+    if device == "auto":
+        try:
+            import torch
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            device = "cpu"
+        cfg = cfg.merge({"device": device})
+
     return cfg
