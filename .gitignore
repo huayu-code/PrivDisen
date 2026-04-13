@@ -48,3 +48,6 @@ wandb/
 
 # codebuddy
 .codebuddy
+
+# Paper (LaTeX source, keep private)
+paper/
