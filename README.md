@@ -221,7 +221,42 @@ We conduct **5 groups** of experiments for the paper:
 | Attack Success Rate | ASR | ↓ lower is better | Attacker's label inference accuracy |
 | Privacy-Utility Tradeoff | PUT | ↑ higher is better | MTA / ASR ratio |
 
-### 4.5 How to Run Each Experiment
+### 4.5 Quick Smoke Test (Run This First!)
+
+Before running full experiments, do a quick test to verify all 6 methods work correctly:
+
+```bash
+# Quick test: CIFAR-10 only, 10 epochs, 2 parties, all 6 methods
+python scripts/quick_test.py
+
+# With specific device
+python scripts/quick_test.py --device cuda:0
+python scripts/quick_test.py --device cpu
+
+# Custom epochs
+python scripts/quick_test.py --epochs 5
+```
+
+This runs vanilla → svfl → labobf → kdk → mid → privdisen sequentially on CIFAR-10 with 10 epochs. Each method takes ~1-2 minutes on CPU. At the end you'll see:
+
+```
+=====================================================
+ Quick Test Results:
+  [pass] vanilla
+  [pass] svfl
+  [pass] labobf
+  [pass] kdk
+  [pass] mid
+  [pass] privdisen
+=====================================================
+
+All methods passed! You can now run full experiments:
+  python scripts/run_all_experiments.py --experiment all --epochs 200
+```
+
+If any method shows `[FAIL]`, check the error log above it before proceeding.
+
+### 4.6 How to Run Each Experiment
 
 #### Exp1: Main Comparison (Table 1)
 

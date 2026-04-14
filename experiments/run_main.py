@@ -66,14 +66,14 @@ def main():
     logger.info(f"Feature dims per party: {feature_dims}")
 
     # ---- Trainer ----
-    bm_type = "cnn" if is_img else "mlp"
+    bm_type = cfg.get("bottom_model", "resnet") if is_img else "mlp"
     embedding_dim = cfg.get("task_dim", 128) if method != "vanilla" else 128
 
     if method == "vanilla":
         trainer = VFLTrainer(
             feature_dims=feature_dims,
             num_classes=num_classes,
-            bottom_model_type=cfg.get("bottom_model", "mlp") if not is_img else "cnn",
+            bottom_model_type=bm_type,
             embedding_dim=embedding_dim,
             top_hidden_dim=cfg.get("top_hidden_dim", 256),
             lr=cfg.get("lr", 1e-3),

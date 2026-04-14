@@ -38,7 +38,7 @@ if sys.platform == "win32":
 # Config
 # --------------------------------------------------------------------------
 METHODS = ["vanilla", "svfl", "labobf", "kdk", "mid", "privdisen"]
-DATASETS = ["cifar10", "adult", "bank"]
+DATASETS = ["cifar10", "mnist", "adult", "bank"]
 PARTY_COUNTS = [2, 3, 4, 5]
 BETA_SWEEP = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5]
 RECORD_DIR = "results/experiment_records"

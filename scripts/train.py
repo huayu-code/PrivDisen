@@ -39,7 +39,7 @@ def main():
     parser.add_argument("--device", type=str, default="auto",
                         help="训练设备 (cuda:0 / cpu / auto)")
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--datasets", nargs="+", default=["cifar10", "adult", "bank"],
+    parser.add_argument("--datasets", nargs="+", default=["cifar10", "mnist", "adult", "bank"],
                         help="要训练的数据集列表")
     parser.add_argument("--methods", nargs="+",
                         default=["vanilla", "svfl", "labobf", "kdk", "mid", "privdisen"],

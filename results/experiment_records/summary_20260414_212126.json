@@ -1,0 +1,13 @@
+{
+  "experiment": "all",
+  "device": "cuda:0",
+  "epochs": 100,
+  "total_time_sec": 8697.7,
+  "record_files": [
+    "results/experiment_records\\exp1_main_20260414_185629.csv",
+    "results/experiment_records\\exp2_multi_party_20260414_193530.csv",
+    "results/experiment_records\\exp3_ablation_20260414_201840.csv",
+    "results/experiment_records\\exp4_pareto_20260414_204910.csv"
+  ],
+  "finished_at": "2026-04-14 21:21:26"
+}

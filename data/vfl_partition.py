@@ -39,37 +39,29 @@ def partition_features_image(
     X: np.ndarray, num_parties: int
 ) -> List[np.ndarray]:
     """
-    Split image features for VFL.
+    Split image features for VFL using spatial (vertical strip) partitioning.
 
-    Strategy:
-      - If num_parties <= num_channels: split by channel groups.
-      - Otherwise: split spatially (vertical strips).
+    Each party receives ALL channels but only a portion of the width.
+    This preserves the spatial structure needed for CNN/ResNet bottom models,
+    and is more realistic than channel splitting.
+
+    For 2 parties on 32x32 image: party 1 gets left 16 cols, party 2 gets right 16 cols.
 
     Args:
         X: shape (N, C, H, W)
         num_parties: number of passive parties
 
     Returns:
-        List of arrays. Each is flattened to (N, D_i).
+        List of arrays. Each is flattened to (N, D_i) where D_i = C * H * W_i.
     """
     N, C, H, W = X.shape
 
-    if num_parties <= C:
-        # Split channels
-        ch_splits = np.array_split(np.arange(C), num_parties)
-        parts = []
-        for ch_idx in ch_splits:
-            part = X[:, ch_idx, :, :]  # (N, C_i, H, W)
-            parts.append(part.reshape(N, -1))
-        return parts
-    else:
-        # Split spatial (vertical strips)
-        w_splits = np.array_split(np.arange(W), num_parties)
-        parts = []
-        for w_idx in w_splits:
-            part = X[:, :, :, w_idx]  # (N, C, H, W_i)
-            parts.append(part.reshape(N, -1))
-        return parts
+    w_splits = np.array_split(np.arange(W), num_parties)
+    parts = []
+    for w_idx in w_splits:
+        part = X[:, :, :, w_idx]  # (N, C, H, W_i) — all channels, partial width
+        parts.append(part.reshape(N, -1))
+    return parts
 
 
 def partition_features(

@@ -16,7 +16,7 @@ num_parties: 2                # number of passive parties
 partition_strategy: "vertical" # vertical feature split
 
 # --- Model ---
-bottom_model: "cnn"           # cnn | mlp
+bottom_model: "resnet"        # resnet | cnn | mlp (resnet recommended for images)
 top_hidden_dim: 256
 num_classes: 10
 
@@ -34,7 +34,7 @@ gamma: 1.0                    # reconstruction loss weight
 delta: 0.1                    # HSIC independence weight
 
 # --- Training ---
-epochs: 100
+epochs: 10
 batch_size: 256
 lr: 0.001
 weight_decay: 0.0001
